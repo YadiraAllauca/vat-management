@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.playwright-cli/
+test-results/
+*.log
+
+.vercel/
+
+# Personal invoice reports and local backups
+*_Recibidos.txt
+Recibidos.txt
+lila-backup-*.json
