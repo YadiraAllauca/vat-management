@@ -11,6 +11,9 @@ import {
   validateRecurring,
   parseBackupData,
   keyFor,
+  validateInvoice,
+  yearSummary,
+  availableYears,
 } from "../src/domain.ts";
 import {
   allInvoices,
@@ -55,6 +58,11 @@ test("upgrading the original database preserves saved invoices", async () => {
   });
   assert.deepEqual(await allInvoices(), [legacy]);
   assert.deepEqual(await allRecurring(), []);
+  // The upgrade rekeys old rows, so month uniqueness also covers them.
+  await assert.rejects(saveInvoices([{ ...legacy, id: "repeated" }]));
+  await saveInvoices([{ ...legacy, id: "next-month", month: "2026-10" }]);
+  assert.equal((await allInvoices()).length, 2);
+  await deleteInvoice("next-month");
   await deleteInvoice(legacy.id);
 });
 test("import classifies by recipient and uses the requested amount", () => {
@@ -335,4 +343,78 @@ test("invalid recurring templates are rejected without changing saved settings",
   assert.throws(() => validateRecurring(template));
   await assert.rejects(saveRecurring(template as any));
   assert.equal((await allRecurring()).length, 0);
+});
+const at = (month: string, category: string, cents: number) =>
+  validateInvoice({
+    id: `${month}-${category}-${cents}`,
+    number: `${month}-${category}-${cents}`,
+    month,
+    category,
+    detail: "",
+    cents,
+    createdAt: new Date().toISOString(),
+  });
+test("the yearly summary adds every month, both semesters, and the year", () => {
+  const summary = yearSummary(
+    [
+      at("2026-02", "APLICABLE IVA", 1000),
+      at("2026-02", "GASTOS PERSONALES", 250),
+      at("2026-06", "APLICABLE IVA", 500),
+      at("2026-07", "ACTIVIDADES SIN IVA", 2000),
+      at("2026-12", "GASTOS PERSONALES", 1),
+      at("2025-03", "APLICABLE IVA", 999999),
+    ],
+    "2026",
+  );
+  assert.equal(summary.year, "2026");
+  assert.equal(summary.months.length, 12);
+  assert.equal(summary.months[1].month, "2026-02");
+  assert.equal(summary.months[1].totals["APLICABLE IVA"], 1000);
+  assert.equal(summary.months[1].total, 1250);
+  assert.equal(summary.months[1].count, 2);
+  assert.equal(summary.months[0].total, 0);
+  assert.equal(summary.months[0].count, 0);
+  assert.equal(summary.semesters[0].semester, 1);
+  assert.deepEqual(summary.semesters[0].months, ["2026-01", "2026-06"]);
+  assert.equal(summary.semesters[0].totals["APLICABLE IVA"], 1500);
+  assert.equal(summary.semesters[0].total, 1750);
+  assert.equal(summary.semesters[0].count, 3);
+  assert.equal(summary.semesters[1].semester, 2);
+  assert.deepEqual(summary.semesters[1].months, ["2026-07", "2026-12"]);
+  assert.equal(summary.semesters[1].totals["ACTIVIDADES SIN IVA"], 2000);
+  assert.equal(summary.semesters[1].total, 2001);
+  assert.equal(summary.annual.total, 3751);
+  assert.equal(summary.annual.count, 5);
+});
+test("the summary lists only the years with records, newest first", () => {
+  assert.deepEqual(
+    availableYears([
+      at("2025-03", "APLICABLE IVA", 100),
+      at("2026-11", "APLICABLE IVA", 100),
+      at("2026-01", "GASTOS PERSONALES", 100),
+    ]),
+    ["2026", "2025"],
+  );
+  assert.deepEqual(availableYears([]), []);
+});
+test("the same invoice number repeats across months but never within one month", async () => {
+  const [september] = parseReport(
+    report([row("001-001-000000001", "9999999999")]),
+  ).records;
+  const october = { ...september, id: "october", month: "2026-10" };
+  assert.deepEqual(uniqueRecords([october], [september]).records, [october]);
+  assert.equal(uniqueRecords([october], [september]).duplicates, 0);
+  assert.equal(
+    uniqueRecords([{ ...september, id: "again" }], [september]).duplicates,
+    1,
+  );
+  assert.equal(uniqueRecords([september, october], []).duplicates, 0);
+  await saveInvoices([september, october]);
+  assert.equal((await allInvoices()).length, 2);
+  await assert.rejects(
+    saveInvoices([{ ...september, id: "same-month", number: "001001000000001" }]),
+  );
+  assert.equal((await allInvoices()).length, 2);
+  await deleteInvoice(september.id);
+  await deleteInvoice(october.id);
 });

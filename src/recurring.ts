@@ -160,7 +160,9 @@ export async function applyRecurring(
           const eligible = new Set(
             pendingRecurring(available, fresh, month).map((t) => t.id),
           );
-          const numbers = new Set(fresh.map((r) => keyFor(r.number)));
+          const numbers = new Set(
+            fresh.filter((r) => r.month === month).map((r) => keyFor(r.number)),
+          );
           const entries: Invoice[] = [];
           available.forEach((t, i) => {
             if (!form.has(`include-${i}`)) return;
@@ -173,7 +175,7 @@ export async function applyRecurring(
               throw new Error(`Completa el número de factura de «${t.name}».`);
             if (numbers.has(keyFor(number)))
               throw new Error(
-                `La factura ${number} ya está registrada o se repite en la selección.`,
+                `La factura ${number} ya está registrada en este mes o se repite en la selección.`,
               );
             numbers.add(keyFor(number));
             entries.push({

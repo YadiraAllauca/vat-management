@@ -64,6 +64,8 @@ export function pendingRecurring(
 }
 export const keyFor = (number: string) =>
   number.trim().replace(/[\s-]/g, "").toUpperCase();
+// An invoice number is unique within its month, not across months.
+export const monthNumberKey = (r: Invoice) => `${r.month}|${keyFor(r.number)}`;
 export function amountToCents(value: string): number {
   const normalized = value.trim().replace(",", ".");
   if (!/^\d+(\.\d{1,2})?$/.test(normalized))
@@ -175,11 +177,11 @@ export function parseReport(text: string) {
   return { records, errors };
 }
 export function uniqueRecords(incoming: Invoice[], existing: Invoice[]) {
-  const seen = new Set(existing.map((r) => keyFor(r.number)));
+  const seen = new Set(existing.map(monthNumberKey));
   const recurringSeen = new Set(existing.map(recurringKey).filter(Boolean));
   let duplicates = 0;
   const records = incoming.filter((r) => {
-    const key = keyFor(r.number);
+    const key = monthNumberKey(r);
     const recurring = recurringKey(r);
     if (seen.has(key) || (recurring && recurringSeen.has(recurring))) {
       duplicates++;
@@ -222,4 +224,38 @@ export function totals(records: Invoice[]) {
         .reduce((sum, r) => sum + r.cents, 0),
     ]),
   ) as Record<Category, number>;
+}
+export const yearOf = (month: string) => month.slice(0, 4);
+export const semesterOf = (month: string) =>
+  Number(month.slice(5, 7)) <= 6 ? 1 : 2;
+export function availableYears(records: Invoice[]): string[] {
+  return [...new Set(records.map((r) => yearOf(r.month)))].sort().reverse();
+}
+export interface PeriodTotals {
+  totals: Record<Category, number>;
+  total: number;
+  count: number;
+}
+function period(records: Invoice[]): PeriodTotals {
+  return {
+    totals: totals(records),
+    total: records.reduce((sum, r) => sum + r.cents, 0),
+    count: records.length,
+  };
+}
+export function yearSummary(records: Invoice[], year: string) {
+  const ofYear = records.filter((r) => yearOf(r.month) === year);
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const month = `${year}-${String(i + 1).padStart(2, "0")}`;
+    return { month, ...period(ofYear.filter((r) => r.month === month)) };
+  });
+  const semesters = ([1, 2] as const).map((semester) => ({
+    semester,
+    months: [
+      `${year}-${semester === 1 ? "01" : "07"}`,
+      `${year}-${semester === 1 ? "06" : "12"}`,
+    ] as [string, string],
+    ...period(ofYear.filter((r) => semesterOf(r.month) === semester)),
+  }));
+  return { year, months, semesters, annual: period(ofYear) };
 }

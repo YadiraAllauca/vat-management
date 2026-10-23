@@ -1,5 +1,5 @@
 import {
-  keyFor,
+  monthNumberKey,
   recurringKey,
   validateInvoice,
   validateRecurring,
@@ -9,18 +9,29 @@ import {
 let connection: Promise<IDBDatabase> | undefined;
 function open() {
   return (connection ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("lila-invoices", 2);
+    const request = indexedDB.open("lila-invoices", 3);
     request.onupgradeneeded = (event) => {
-      if (event.oldVersion < 1) {
-        const store = request.result.createObjectStore("invoices", {
-          keyPath: "id",
-        });
-        store.createIndex("numberKey", "numberKey", { unique: true });
+      if (event.oldVersion < 1)
+        request.result.createObjectStore("invoices", { keyPath: "id" });
+      const store = request.transaction!.objectStore("invoices");
+      if (event.oldVersion < 2) {
+        store.createIndex("recurringKey", "recurringKey", { unique: true });
+        request.result.createObjectStore("recurring", { keyPath: "id" });
       }
-      request
-        .transaction!.objectStore("invoices")
-        .createIndex("recurringKey", "recurringKey", { unique: true });
-      request.result.createObjectStore("recurring", { keyPath: "id" });
+      if (event.oldVersion < 3) {
+        // Invoice numbers used to be unique across every month.
+        if (store.indexNames.contains("numberKey"))
+          store.deleteIndex("numberKey");
+        store.createIndex("monthNumberKey", "monthNumberKey", { unique: true });
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const entry = cursor.result;
+          if (!entry) return;
+          const { numberKey: _old, ...record } = entry.value;
+          entry.update({ ...record, monthNumberKey: monthNumberKey(record) });
+          entry.continue();
+        };
+      }
     };
     request.onsuccess = () => {
       request.result.onversionchange = () => {
@@ -60,7 +71,7 @@ export async function saveInvoices(
     clean.forEach((r) =>
       store.put({
         ...r,
-        numberKey: keyFor(r.number),
+        monthNumberKey: monthNumberKey(r),
         ...(recurringKey(r) ? { recurringKey: recurringKey(r) } : {}),
       }),
     );
