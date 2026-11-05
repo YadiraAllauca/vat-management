@@ -255,9 +255,15 @@
         report: toReport(records),
         keys: records.map(keyOf),
       });
-      if (!answer?.ok) throw new Error(answer?.error ?? "No se pudo abrir Lila.");
+      if (!answer?.ok)
+        throw new Error(answer?.error ?? "No se pudieron entregar las facturas.");
       for (const record of records) sent.add(keyOf(record));
-      show({ name: "sent", sent: records.length, progress: 100 });
+      show({
+        name: "sent",
+        sent: records.length,
+        abierta: answer.abierta === true,
+        progress: 100,
+      });
     } catch (error) {
       show({ name: "error", message: readable(error), progress: 0 });
     } finally {

@@ -222,6 +222,9 @@ const LilaPanel = (() => {
         .querySelector(".close")
         .addEventListener("click", () => this.handlers.onClose?.());
       this.frame
+        .querySelector("#lila-close")
+        ?.addEventListener("click", () => this.handlers.onClose?.());
+      this.frame
         .querySelector("#lila-extract")
         ?.addEventListener("click", () => this.handlers.onExtract?.());
       this.frame
@@ -268,7 +271,12 @@ const LilaPanel = (() => {
           "factura enviada",
           "facturas enviadas",
         )} a Lila.</p>
-          <p class="hint">Ya están guardadas en su mes. Si alguna no cuadra, bórrala desde Lila.</p>`;
+          <p class="hint">${
+            state.abierta
+              ? "Lila las está guardando en su pestaña, cada una en su mes. Si alguna no cuadra, bórrala desde ahí."
+              : "Quedan guardadas aquí y entrarán solas la próxima vez que abras Lila, cada una en su mes."
+          }</p>
+          <button class="action" type="button" id="lila-close">Listo</button>`;
 
       if (state.name === "error")
         return `<p class="error" role="alert">${escape(state.message)}</p>

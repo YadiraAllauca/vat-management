@@ -36,7 +36,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message?.type === "enviar") {
     queue(message)
-      .then(() => respond({ ok: true }))
+      .then((abierta) => respond({ ok: true, abierta }))
       .catch((error) => respond({ ok: false, error: error.message }));
     return true;
   }
@@ -95,6 +95,7 @@ async function readAll(candidates, inboxTabId) {
   await tell({ type: "cuerpos", results });
 }
 
+/** @returns {Promise<boolean>} true si Lila ya está abierta en alguna pestaña. */
 async function queue({ report, keys }) {
   if (typeof report !== "string" || !report.includes("\t"))
     throw new Error("El informe llegó vacío.");
@@ -113,8 +114,7 @@ async function queue({ report, keys }) {
   );
   await chrome.storage.local.set({ pending, sent });
 
-  const known = [stored.lilaUrl, stored.lastLila].filter(Boolean);
-  for (const value of known) {
+  for (const value of [stored.lilaUrl, stored.lastLila].filter(Boolean)) {
     let origin;
     try {
       origin = new URL(value).origin;
@@ -122,13 +122,9 @@ async function queue({ report, keys }) {
       continue;
     }
     const open = await chrome.tabs.query({ url: `${origin}/*` });
-    if (!open.length) continue;
-    const tab = open.find((one) => one.active) ?? open[0];
-    await chrome.tabs.update(tab.id, { active: true });
-    await chrome.windows.update(tab.windowId, { focused: true });
-    return;
+    if (open.length) return true;
   }
-  await chrome.tabs.create({ url: known[0] ?? DEFAULT_URL });
+  return false;
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
