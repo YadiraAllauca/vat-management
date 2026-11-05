@@ -293,7 +293,11 @@ test("new backups restore templates and invoices atomically, keeping existing se
       recurring: [template],
     }),
   );
-  assert.deepEqual(backup, { records: [invoice], recurring: [template] });
+  assert.deepEqual(backup, {
+    records: [invoice],
+    recurring: [template],
+    cedula: null,
+  });
   await saveInvoices(backup.records, backup.recurring);
   assert.deepEqual(await allRecurring(), [template]);
   assert.deepEqual(await allInvoices(), [invoice]);
@@ -417,4 +421,17 @@ test("the same invoice number repeats across months but never within one month",
   assert.equal((await allInvoices()).length, 2);
   await deleteInvoice(september.id);
   await deleteInvoice(october.id);
+});
+
+test("la copia de seguridad lleva la cédula y la devuelve al restaurar", () => {
+  const base = { app: "lila", version: 3, records: [], recurring: [] };
+  assert.equal(
+    parseBackupData(JSON.stringify({ ...base, cedula: "0912345675" })).cedula,
+    "0912345675",
+  );
+  assert.equal(parseBackupData(JSON.stringify(base)).cedula, null);
+  assert.equal(
+    parseBackupData(JSON.stringify({ ...base, cedula: "123" })).cedula,
+    null,
+  );
 });

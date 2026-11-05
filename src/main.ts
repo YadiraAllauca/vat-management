@@ -18,6 +18,8 @@ import {
   deleteInvoice,
   deleteMonth,
   allRecurring,
+  readSetting,
+  writeSetting,
 } from "./db.ts";
 import {
   renderRecurringPage,
@@ -48,7 +50,12 @@ const paths: Record<string, string> = {
     '<path d="M20 5c-3-3-7-1-8 2-1-3-5-5-8-2-4 4 1 10 8 15 7-5 12-11 8-15z"/>',
   chart: '<path d="M4 3v18h17M8 16v-5M13 16V6M18 16v-8"/>',
   chevron: '<path d="m9 5 7 7-7 7"/>',
+  home: '<path d="m3.5 11 8.5-7.5 8.5 7.5"/><path d="M6 9.5V20h12V9.5"/>',
+  puzzle:
+    '<path fill="currentColor" stroke="none" d="M7 4h2.2a2.8 2.8 0 0 1 5.6 0H17a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-2.2a2.8 2.8 0 0 0 0-5.6V7a3 3 0 0 1 3-3z"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
+  settings:
+    '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.3"/><circle cx="10" cy="17" r="2.3"/>',
 };
 const icon = (name: string) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.receipt}</svg>`;
@@ -100,7 +107,7 @@ let year = currentYear();
 let pending: Invoice[] = [];
 let busy = false;
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="/" aria-label="Lila, inicio"><span class="brand-mark">l<span>•</span></span><span>lila<span class="brand-sub">TUS CUENTAS, EN CALMA</span></span></a><div class="months-heading"><span>CARPETAS MENSUALES</span><button class="icon-button" id="add-month" aria-label="Abrir un mes" title="Abrir un mes">${icon("plus")}</button></div><nav id="months" aria-label="Carpetas mensuales"></nav><button class="nav-item" id="summary-nav">${icon("chart")} Resumen anual</button><button class="nav-item backup-nav" id="backup-nav">${icon("shield")} Copias de seguridad</button><button class="nav-item" id="recurring-nav">${icon("receipt")} Gastos recurrentes</button><button class="nav-item" id="email-nav">${icon("mail")} Facturas por correo</button><div class="local-note">${icon("shield")}<div>Solo en tu dispositivo<small>Tus datos se guardan en este navegador.</small></div></div><div class="sidebar-footer"><span class="avatar">M</span><div>Mi contabilidad<small>Un poco más de tranquilidad</small></div></div></aside><main><header class="topbar"><div class="breadcrumb">Mi espacio <span>/</span> <strong id="crumb">Mis facturas</strong></div><span class="device-status"><i></i> Guardado en este dispositivo</span></header><div id="content"></div><footer class="main-footer"><span>Hecho para que tus cuentas sean más simples.</span><span>Lila <span class="footer-dot">✦</span> Tu espacio de claridad</span></footer></main></div><div id="dropzone" class="dropzone" aria-hidden="true"><div class="dropzone-card">${icon("upload")}<strong>Suelta tu archivo aquí</strong><span>.txt informe del SRI · .json copia de seguridad</span></div></div><div id="month-menu" role="menu" hidden></div><dialog id="modal"></dialog><div id="toast" role="status" aria-live="polite"></div><input type="file" id="report-file" accept=".txt,text/plain" hidden><input type="file" id="backup-file" accept=".json,application/json" hidden>`;
+app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="/" aria-label="Lila, inicio"><span class="brand-mark">l<span>•</span></span><span>lila<span class="brand-sub">TUS CUENTAS, EN CALMA</span></span></a><button class="nav-item" id="home-nav">${icon("home")} Inicio</button><button class="nav-item" id="summary-nav">${icon("chart")} Resumen anual</button><div class="months-heading"><span>CARPETAS MENSUALES</span></div><nav id="months" aria-label="Carpetas mensuales"></nav><button class="nav-item add-month" id="add-month">${icon("plus")} Abrir un mes</button><div class="nav-bottom"><button class="nav-item" id="recurring-nav">${icon("settings")} Configuración</button><button class="nav-item" id="backup-nav">${icon("shield")} Copias de seguridad</button><button class="nav-item nav-extension" id="email-nav"><span class="nav-badge">${icon("puzzle")}</span>Gastos por correo</button></div></aside><main><header class="topbar"><div class="breadcrumb">Mi espacio <span>/</span> <strong id="crumb">Mis facturas</strong></div><span class="device-status"><i></i> Guardado en este dispositivo</span></header><div id="setup-banner" class="setup-banner" hidden>${icon("info")}<p><strong>Falta tu cédula.</strong> Sin ella, Lila no puede saber qué facturas van como gasto personal y cuáles aplican IVA.</p><button class="button secondary" id="setup-go">Configurarla ahora</button></div><div id="content"></div><footer class="main-footer"><span>Hecho para que tus cuentas sean más simples.</span><span>Lila <span class="footer-dot">✦</span> Tu espacio de claridad</span></footer></main></div><div id="dropzone" class="dropzone" aria-hidden="true"><div class="dropzone-card">${icon("upload")}<strong>Suelta tu archivo aquí</strong><span>.txt informe del SRI · .json copia de seguridad</span></div></div><div id="month-menu" role="menu" hidden></div><dialog id="modal"></dialog><div id="toast" role="status" aria-live="polite"></div><input type="file" id="report-file" accept=".txt,text/plain" hidden><input type="file" id="backup-file" accept=".json,application/json" hidden>`;
 const content = document.querySelector<HTMLDivElement>("#content")!;
 const modal = document.querySelector<HTMLDialogElement>("#modal")!;
 function toast(message: string, error = false) {
@@ -155,6 +162,8 @@ function summaryUI() {
 }
 function render() {
   closeMonthMenu();
+  const banner = document.querySelector<HTMLElement>("#setup-banner")!;
+  banner.hidden = Boolean(identity?.cedula) || view === "recurring";
   const months = [...new Set(records.map((r) => r.month))].sort().reverse();
   const years = [...new Set(months.map(yearOf))];
   document.querySelector("#months")!.innerHTML = years
@@ -170,6 +179,9 @@ function render() {
     })
     .join("");
   document
+    .querySelector("#home-nav")!
+    .classList.toggle("active", view === "records" && month === nowMonth());
+  document
     .querySelector("#backup-nav")!
     .classList.toggle("active", view === "backup");
   document
@@ -184,20 +196,20 @@ function render() {
   document.querySelector("#crumb")!.textContent = {
     records: "Mis facturas",
     backup: "Copias de seguridad",
-    recurring: "Gastos recurrentes",
+    recurring: "Configuración",
     summary: "Resumen anual",
-    email: "Facturas por correo",
+    email: "Gastos por correo",
   }[view];
   if (view === "summary") return renderSummaryPage(summaryUI(), records, year);
   if (view === "recurring")
-    return renderRecurringPage(recurringUI(), templates);
+    return renderRecurringPage(recurringUI(), templates, identity);
   if (view === "backup") return renderBackup();
   if (view === "email") return renderEmail();
   const current = records.filter((r) => r.month === month);
   const sums = totals(current);
   const monthTotal = current.reduce((sum, r) => sum + r.cents, 0);
   const availableRecurring = pendingRecurring(templates, records, month).length;
-  content.innerHTML = `<div class="page-heading"><div><div class="eyebrow">UN POCO DE ORDEN, MUCHA TRANQUILIDAD</div><h1>Mis facturas<span class="heading-dot">.</span></h1><p>Todo en su mes. Cada gasto en su lugar.</p></div><div class="heading-actions"><button class="button secondary" id="import">${icon("upload")} Importar informe</button><button class="button primary" id="new">${icon("plus")} Nuevo registro</button></div></div><section class="month-banner"><div class="month-title"><span class="calendar-icon">${icon("folder")}</span><div><span class="overline">CARPETA ABIERTA</span><h2>${titleCase(monthName(month))}</h2><p class="month-summary">${current.length ? `${current.length} ${current.length === 1 ? "factura guardada" : "facturas guardadas"} · ${money(monthTotal)} en total` : "Todavía sin facturas. Agrega un registro o importa un informe."}</p></div></div><div class="month-actions">${templates.length ? `<button class="button secondary" id="apply-recurring" ${availableRecurring ? "" : "disabled"}>${icon("plus")} Añadir recurrentes (${availableRecurring})</button>` : ""}<button class="button secondary" id="change-month">${icon("calendar")} Cambiar de mes</button></div></section><section class="stats" aria-label="Totales del mes">${categories.map((c, i) => `<article class="stat stat-${i}"><div class="stat-top"><span>${["Aplicable IVA", "Actividades sin IVA", "Gastos personales"][i]}</span><span class="stat-icon">${icon(["receipt", "chart", "heart"][i])}</span></div><strong>${money(sums[c])}</strong><div class="stat-bottom"><span>${current.filter((r) => r.category === c).length} registros</span><span>${["Base sin impuestos", "Total registrado", "Importe total"][i]}</span></div></article>`).join("")}</section><section class="records-panel" data-drop="report"><div class="panel-heading"><div><h2>Registros del mes <span class="pill">${current.length}</span></h2><p>Un lugar para todas tus facturas.</p></div><div class="month-total"><span>Total registrado</span><strong>${money(monthTotal)}</strong></div></div><div class="table-toolbar"><div class="tabs" role="group" aria-label="Filtrar por categoría">${["all", ...categories].map((c, i) => `<button class="tab ${category === c ? "chosen" : ""}" data-category="${c}">${["Todos", "Aplicable IVA", "Sin IVA", "Personales"][i]}</button>`).join("")}</div><label class="search">${icon("search")}<input id="search" placeholder="Buscar factura o detalle…" aria-label="Buscar factura o detalle" value="${escape(query)}"></label></div><div id="table-content"></div></section><div class="tip">${icon("info")}<span><strong>Tu información, contigo.</strong> Crea una copia de seguridad para conservar tus registros o llevarlos a otro dispositivo.</span><button id="quick-backup">Crear copia ${icon("arrow")}</button></div>`;
+  content.innerHTML = `<div class="page-heading"><div><h1>Mis facturas<span class="heading-dot">.</span></h1></div><div class="heading-actions"><button class="button secondary" id="import">${icon("upload")} Importar informe</button><button class="button primary" id="new">${icon("plus")} Nuevo registro</button></div></div><section class="month-banner"><div class="month-title"><span class="calendar-icon">${icon("folder")}</span><div><span class="overline">CARPETA ABIERTA</span><h2>${titleCase(monthName(month))}</h2><p class="month-summary">${current.length ? `${current.length} ${current.length === 1 ? "factura guardada" : "facturas guardadas"} · ${money(monthTotal)} en total` : "Todavía sin facturas. Agrega un registro o importa un informe."}</p></div></div><div class="month-actions">${templates.length ? `<button class="button secondary" id="apply-recurring" ${availableRecurring ? "" : "disabled"}>${icon("plus")} Añadir recurrentes (${availableRecurring})</button>` : ""}<button class="button secondary" id="change-month">${icon("calendar")} Cambiar de mes</button></div></section><section class="stats" aria-label="Totales del mes">${categories.map((c, i) => `<article class="stat stat-${i}"><div class="stat-top"><span>${["Aplicable IVA", "Actividades sin IVA", "Gastos personales"][i]}</span><span class="stat-icon">${icon(["receipt", "chart", "heart"][i])}</span></div><strong>${money(sums[c])}</strong><div class="stat-bottom"><span>${current.filter((r) => r.category === c).length} registros</span><span>${["Base sin impuestos", "Total registrado", "Importe total"][i]}</span></div></article>`).join("")}</section><section class="records-panel" data-drop="report"><div class="panel-heading"><div><h2>Registros del mes <span class="pill">${current.length}</span></h2><p>Un lugar para todas tus facturas.</p></div><div class="month-total"><span>Total registrado</span><strong>${money(monthTotal)}</strong></div></div><div class="table-toolbar"><div class="tabs" role="group" aria-label="Filtrar por categoría">${["all", ...categories].map((c, i) => `<button class="tab ${category === c ? "chosen" : ""}" data-category="${c}">${["Todos", "Aplicable IVA", "Sin IVA", "Personales"][i]}</button>`).join("")}</div><label class="search">${icon("search")}<input id="search" placeholder="Buscar factura o detalle…" aria-label="Buscar factura o detalle" value="${escape(query)}"></label></div><div id="table-content"></div></section><div class="tip">${icon("info")}<span><strong>Tu información, contigo.</strong> Crea una copia de seguridad para conservar tus registros o llevarlos a otro dispositivo.</span><button class="button secondary" id="quick-backup">${icon("download")} Crear copia</button></div>`;
   renderTable();
   document.querySelector("#apply-recurring")?.addEventListener("click", () => {
     void applyRecurring(recurringUI(), month, monthName(month));
@@ -248,7 +260,7 @@ function renderTable() {
         .join(
           "",
         )}</tbody></table></div><div class="pagination"><span>Mostrando ${(page - 1) * 8 + 1}–${Math.min(page * 8, filtered.length)} de ${filtered.length} registros</span><div><button class="button small secondary" id="prev" ${page === 1 ? "disabled" : ""}>Anterior</button><span>${page} / ${pages}</span><button class="button small secondary" id="next" ${page === pages ? "disabled" : ""}>Siguiente</button></div></div>`
-    : `<div class="empty"><span class="empty-icon">${icon(query || category !== "all" ? "search" : "receipt")}</span><h3>${query || category !== "all" ? "Sin resultados por aquí" : "Un mes listo para organizar"}</h3><p>${query || category !== "all" ? "Prueba otra búsqueda o cambia la categoría." : "Agrega tu primera factura o importa un informe del SRI.<br>Nosotros nos encargamos de sumar."}</p>${!query && category === "all" ? '<button class="button secondary" id="empty-add">Agregar mi primera factura</button>' : ""}</div>`;
+    : `<div class="empty"><span class="empty-icon">${icon(query || category !== "all" ? "search" : "receipt")}</span><h3>${query || category !== "all" ? "Sin resultados por aquí" : "Un mes listo para organizar"}</h3>${query || category !== "all" ? "<p>Prueba otra búsqueda o cambia la categoría.</p>" : ""}</div>`;
   document.querySelector("#prev")?.addEventListener("click", () => {
     page--;
     renderTable();
@@ -257,9 +269,6 @@ function renderTable() {
     page++;
     renderTable();
   });
-  document
-    .querySelector("#empty-add")
-    ?.addEventListener("click", () => editRecord());
   document
     .querySelectorAll<HTMLElement>("[data-edit]")
     .forEach(
@@ -459,7 +468,13 @@ async function previewImport(file: File, backup: boolean) {
     const text = await readFile(file);
     const parsed = backup
       ? { ...parseBackupData(text), errors: [] as string[] }
-      : { ...parseReport(text), recurring: [] as RecurringExpense[] };
+      : {
+          ...parseReport(text),
+          recurring: [] as RecurringExpense[],
+          cedula: null,
+        };
+    if (parsed.cedula && !identity?.cedula)
+      rememberIdentity({ cedula: parsed.cedula, ruc: `${parsed.cedula}001` });
     [records, templates] = await Promise.all([allInvoices(), allRecurring()]);
     const existingTemplates = new Set(templates.map((t) => t.id));
     const newTemplates = parsed.recurring.filter((t) => {
@@ -545,10 +560,11 @@ async function exportBackup() {
         JSON.stringify(
           {
             app: "lila",
-            version: 2,
+            version: 3,
             exportedAt: new Date().toISOString(),
             records: fresh,
             recurring,
+            cedula: identity?.cedula ?? null,
           },
           null,
           2,
@@ -572,48 +588,74 @@ async function exportBackup() {
 const GMAIL_URL = "https://mail.google.com/mail/u/0/#inbox";
 const extensionVersion = () =>
   document.documentElement.dataset.lilaExtension ?? null;
+const asIdentity = (cedula: unknown) =>
+  typeof cedula === "string" && /^\d{10}$/.test(cedula)
+    ? { cedula, ruc: `${cedula}001` }
+    : null;
+
+function rememberIdentity(next: { cedula: string; ruc: string }) {
+  identity = next;
+  void writeSetting("identity", { cedula: next.cedula });
+  extensionCedula = next.cedula;
+  document.dispatchEvent(
+    new CustomEvent("lila:extension-identity", { detail: next }),
+  );
+}
+
 let identity: { cedula: string; ruc: string } | null = null;
+let extensionCedula = "";
+
+function knownIdentity() {
+  const seen = new Map<string, number>();
+  for (const record of records) {
+    const id = record.recipient ?? "";
+    if (!/^\d{10}(\d{3})?$/.test(id)) continue;
+    const cedula = id.slice(0, 10);
+    seen.set(cedula, (seen.get(cedula) ?? 0) + 1);
+  }
+  const best = [...seen.entries()].sort((a, b) => b[1] - a[1])[0];
+  return best ? { cedula: best[0], ruc: `${best[0]}001` } : null;
+}
+
+function syncIdentity() {
+  if (identity?.cedula) {
+    // Solo si la extensión tiene otra cosa: al guardarla ella vuelve a
+    // anunciarse, y empujar de nuevo dejaría a las dos rebotando sin fin.
+    if (extensionVersion() && extensionCedula !== identity.cedula)
+      document.dispatchEvent(
+        new CustomEvent("lila:extension-identity", { detail: identity }),
+      );
+    return;
+  }
+  const known = knownIdentity();
+  if (known) rememberIdentity(known);
+}
 
 function renderEmail() {
   const version = extensionVersion();
-  content.innerHTML = `<div class="page-heading"><div><div class="eyebrow">TUS FACTURAS, SIN TECLEARLAS</div><h1>Facturas por correo<span class="heading-dot">.</span></h1><p>La extensión lee tus facturas en Gmail y te las trae aquí.</p></div></div><div class="backup-grid"><article class="backup-card"><span class="dialog-icon">${icon("mail")}</span><h2>Extensión de Gmail</h2><div class="extension-state ${version ? "" : "off"}"><i></i>${version ? `Conectada en este navegador · versión ${escape(version)}` : "Sin conectar en este navegador"}</div>${
+  content.innerHTML = `<div class="page-heading"><div><h1>Gastos por correo<span class="heading-dot">.</span></h1><p>La extensión lee tus facturas en Gmail y te las trae aquí.</p></div></div><div class="email-card"><div class="email-main"><span class="dialog-icon">${icon("mail")}</span><h2>Extensión de Gmail</h2><div class="extension-state ${version ? "" : "off"}"><i></i>${version ? `Conectada en este navegador · versión ${escape(version)}` : "Sin conectar en este navegador"}</div>${
     version
-      ? `<p>Abre Gmail y la extensión marca los correos que parecen facturas. Cuando las envíes, vuelves aquí a confirmar la importación.</p><div class="backup-meta">Lee solo el texto del correo · Nunca guarda sin tu confirmación</div><form class="id-form" id="identity"><div class="id-fields"><label><span>Tu cédula</span><input id="cedula" inputmode="numeric" maxlength="10" placeholder="0912345678" value="${escape(identity?.cedula ?? "")}"></label><label><span>Tu RUC</span><input id="ruc" inputmode="numeric" maxlength="13" placeholder="0912345678001" value="${escape(identity?.ruc ?? "")}"></label></div><p class="field-hint" id="identity-note" aria-live="polite">Las facturas a tu cédula entran como gastos personales con el importe total; las de tu RUC, como aplicable IVA con el valor sin impuestos. Cuando un correo no dice a nombre de quién está, se usa tu cédula.</p><div class="card-actions"><button class="button primary" type="submit">${icon("check")} Guardar mis datos</button><a class="button secondary" id="open-gmail" href="${GMAIL_URL}" target="_blank" rel="noopener">${icon("mail")} Usar en Gmail</a></div><button class="link-button" type="button" id="extension-options">Más ajustes de la extensión</button></form>`
-      : `<p>Cárgala una vez en este navegador y Lila la reconoce sola.</p><ol class="steps"><li>Abre <code>chrome://extensions</code> y activa el modo de desarrollador.</li><li>Pulsa «Cargar descomprimida» y elige la carpeta <code>extension/</code> del proyecto.</li><li>Vuelve a esta página.</li></ol><div class="card-actions"><button class="button primary" id="extension-retry">${icon("arrow")} Buscar la extensión</button></div>`
-  }</article><article class="backup-card"><span class="dialog-icon">${icon("receipt")}</span><h2>Cómo llegan tus facturas</h2><ol class="steps"><li>Mira tu bandeja y marca los correos que parecen facturas.</li><li>Abre cada uno por detrás y lee la clave de acceso, el receptor y los montos.</li><li>Te muestra lo que quedó completo y, aparte, lo que le faltaron datos.</li><li>Al enviarlas, Lila abre la vista previa de siempre.</li></ol><div class="backup-meta">La serie real evita duplicados cuando importes el informe del SRI</div></article></div><div class="storage-explainer">${icon("shield")}<div><h3>Nada sale de este navegador</h3><p>La extensión lee lo que Gmail ya te mostró, con tu propia sesión. No hay servidor, no hay permisos de Google y los datos de tus facturas no viajan a ninguna parte: pasan de la pestaña de Gmail a la de Lila dentro de tu equipo. Las facturas a las que les falte la serie, la fecha, tu identificación o el monto no se envían: la extensión te dice qué falta en vez de inventarlo.</p></div></div>`;
-  document
-    .querySelector("#extension-options")
-    ?.addEventListener("click", () =>
-      document.dispatchEvent(new Event("lila:extension-options")),
-    );
-  document.querySelector("#identity")?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const value = (id: string) =>
-      document.querySelector<HTMLInputElement>(`#${id}`)!.value.trim();
-    const cedula = value("cedula");
-    const ruc = value("ruc");
-    const note = document.querySelector("#identity-note")!;
-    if (cedula && !/^\d{10}$/.test(cedula))
-      return void (note.textContent = "La cédula tiene diez dígitos.");
-    if (ruc && !/^\d{13}$/.test(ruc))
-      return void (note.textContent = "El RUC tiene trece dígitos.");
-    document.dispatchEvent(
-      new CustomEvent("lila:extension-identity", { detail: { cedula, ruc } }),
-    );
-    toast("Tus datos quedaron guardados en la extensión.");
-  });
+      ? `<div class="card-actions"><a class="button secondary" id="open-gmail" href="${GMAIL_URL}" target="_blank" rel="noopener">${icon("mail")} Usar en Gmail</a></div>`
+      : `<p>Cárgala una vez en este navegador y recarga esta página: Lila la reconoce sola.</p><ol class="steps"><li>Abre <code>chrome://extensions</code> y activa el modo de desarrollador.</li><li>Pulsa «Cargar descomprimida» y elige la carpeta <code>extension/</code> del proyecto.</li></ol>`
+  }</div><div class="how"><h3>Cómo funciona</h3><ol class="flow"><li><strong>Abres Gmail.</strong> La extensión mira la bandeja y marca los correos que parecen facturas o pagos. Te avisa en una tarjeta, abajo a la derecha.</li><li><strong>Pulsas «Aplicar».</strong> Cada correo marcado se abre en una pestaña en segundo plano. Tu bandeja no se mueve de sitio.</li><li><strong>Lee cada factura.</strong> Primero el XML adjunto, que trae los campos exactos; si no hay, saca el texto del PDF y de ahí la clave de acceso, con la que deduce serie y fecha; en último caso, las etiquetas del propio correo.</li><li><strong>Revisas la lista.</strong> Verás lo que quedó completo, lo que ya habías enviado antes y, aparte, los correos a los que les faltaron datos y qué les falta.</li><li><strong>Las envías.</strong> Lila las guarda sola en el mes de cada factura y te lleva a ese mes. Las repetidas se omiten.</li></ol></div></div>`;
   document.dispatchEvent(new Event("lila:extension-ping"));
-  document.querySelector("#extension-retry")?.addEventListener("click", () => {
-    document.dispatchEvent(new Event("lila:extension-ping"));
-    setTimeout(() => {
-      if (view !== "email") return;
-      if (extensionVersion()) render();
-      else toast("Todavía no encuentro la extensión en este navegador.", true);
-    }, 200);
-  });
 }
+
+content.addEventListener("submit", (event) => {
+  if (!(event.target as HTMLElement).closest("#identity")) return;
+  event.preventDefault();
+  const cedula = document
+    .querySelector<HTMLInputElement>("#cedula")!
+    .value.trim();
+  const note = document.querySelector("#identity-note")!;
+  if (!/^\d{10}$/.test(cedula))
+    return void (note.textContent = "La cédula tiene diez dígitos.");
+  rememberIdentity({ cedula, ruc: `${cedula}001` });
+  render();
+  toast("Listo. Lila ya sabe qué facturas están a tu nombre.");
+});
 function renderBackup() {
-  content.innerHTML = `<div class="page-heading"><div><div class="eyebrow">TU INFORMACIÓN, SIEMPRE CONTIGO</div><h1>Copias de seguridad<span class="heading-dot">.</span></h1><p>Guarda una copia hoy. Retoma con tranquilidad mañana.</p></div></div><div class="backup-grid"><article class="backup-card"><span class="dialog-icon">${icon("download")}</span><h2>Descargar mis datos</h2><p>Guarda todas tus facturas en un archivo JSON. Incluye todos los meses, categorías y la configuración de gastos recurrentes.</p><div class="backup-meta">${records.length} registros · ${new Set(records.map((r) => r.month)).size} meses · ${templates.length} recurrentes</div><button class="button primary" id="download-backup">${icon("download")} Descargar copia</button></article><article class="backup-card" data-drop="backup"><span class="dialog-icon">${icon("upload")}</span><h2>Recuperar una copia</h2><p>Selecciona una copia de Lila para añadir sus registros a este navegador. Las facturas repetidas se omiten.</p><div class="backup-meta">Archivo .json · Vista previa antes de guardar</div><button class="button secondary" id="restore-backup">${icon("upload")} Seleccionar copia</button></article></div><div class="storage-explainer">${icon("shield")}<div><h3>Tus datos se guardan en este navegador</h3><p>Lila usa IndexedDB en tu dispositivo. Si cambias de navegador, borras los datos del sitio o usas una ventana privada, necesitarás una copia para recuperar tu información. Descarga una copia con regularidad y guárdala en un lugar seguro.</p></div></div>`;
+  content.innerHTML = `<div class="page-heading"><div><h1>Copias de seguridad<span class="heading-dot">.</span></h1><p>Guarda una copia hoy. Retoma con tranquilidad mañana.</p></div></div><div class="backup-grid"><article class="backup-card"><span class="dialog-icon">${icon("download")}</span><h2>Descargar mis datos</h2><p>Guarda todas tus facturas en un archivo JSON. Incluye todos los meses, categorías y la configuración de gastos recurrentes.</p><div class="backup-meta">${records.length} registros · ${new Set(records.map((r) => r.month)).size} meses · ${templates.length} recurrentes</div><button class="button primary" id="download-backup">${icon("download")} Descargar copia</button></article><article class="backup-card" data-drop="backup"><span class="dialog-icon">${icon("upload")}</span><h2>Recuperar una copia</h2><p>Selecciona una copia de Lila para añadir sus registros a este navegador. Las facturas repetidas se omiten.</p><div class="backup-meta">Archivo .json · Vista previa antes de guardar</div><button class="button secondary" id="restore-backup">${icon("upload")} Seleccionar copia</button></article></div><div class="storage-explainer">${icon("shield")}<div><h3>Tus datos se guardan en este navegador</h3><p>Lila usa IndexedDB en tu dispositivo. Si cambias de navegador, borras los datos del sitio o usas una ventana privada, necesitarás una copia para recuperar tu información. Descarga una copia con regularidad y guárdala en un lugar seguro.</p></div></div>`;
   document
     .querySelector("#download-backup")!
     .addEventListener("click", exportBackup);
@@ -684,6 +726,19 @@ document.querySelector("#months")!.addEventListener("click", (e) => {
     render();
   }
 });
+document.querySelector("#setup-go")!.addEventListener("click", () => {
+  view = "recurring";
+  render();
+  document.querySelector<HTMLInputElement>("#cedula")?.focus();
+});
+document.querySelector("#home-nav")!.addEventListener("click", () => {
+  view = "records";
+  category = "all";
+  query = "";
+  page = 1;
+  selectMonth(nowMonth());
+  render();
+});
 document.querySelector("#recurring-nav")!.addEventListener("click", () => {
   view = "recurring";
   render();
@@ -704,11 +759,13 @@ document.addEventListener("lila:extension-ready", (event) => {
   const detail = (event as CustomEvent).detail as
     | { cedula?: string; ruc?: string }
     | undefined;
-  const next = { cedula: detail?.cedula ?? "", ruc: detail?.ruc ?? "" };
-  const changed =
-    !identity || identity.cedula !== next.cedula || identity.ruc !== next.ruc;
-  identity = next;
-  if (view === "email" && changed) render();
+  const fromExtension = detail?.cedula ?? "";
+  extensionCedula = fromExtension;
+  const changed = (identity?.cedula ?? "") !== fromExtension;
+  if (fromExtension && !identity?.cedula)
+    rememberIdentity({ cedula: fromExtension, ruc: `${fromExtension}001` });
+  syncIdentity();
+  if (changed || view === "email") render();
 });
 document.addEventListener("lila:extension-gone", () => {
   if (view !== "email") return;
@@ -846,7 +903,13 @@ modal.addEventListener("cancel", (e) => {
   if (busy) e.preventDefault();
 });
 try {
-  [records, templates] = await Promise.all([allInvoices(), allRecurring()]);
+  const saved = await Promise.all([
+    allInvoices(),
+    allRecurring(),
+    readSetting("identity"),
+  ]);
+  [records, templates] = [saved[0], saved[1]];
+  identity = asIdentity((saved[2] as { cedula?: unknown } | undefined)?.cedula);
   if (records.length)
     selectMonth(
       records

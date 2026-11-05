@@ -1,6 +1,13 @@
 (() => {
-  const { looksLikeInvoice, extract, fromXml, toReport, dateFrom, MISSING_ID } =
-    globalThis.LilaParse;
+  const {
+    looksLikeInvoice,
+    extract,
+    fromXml,
+    toReport,
+    dateFrom,
+    identityCandidates,
+    MISSING_ID,
+  } = globalThis.LilaParse;
   const gmail = globalThis.LilaGmail;
   const { Panel } = globalThis.LilaPanel;
 
@@ -13,6 +20,7 @@
   let identity = {};
   let sent = new Set();
   let announced = false;
+  let learned = null;
   let watchdog;
 
   function arm() {
@@ -120,7 +128,49 @@
     recompute();
   }
 
+  const textOf = (result) =>
+    [
+      result.text,
+      ...(result.attachments ?? [])
+        .filter((one) => one.kind === "pdf")
+        .map((one) => one.text),
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+  function learnIdentity() {
+    const stated = [];
+    const votes = new Map();
+    for (const result of done.results) {
+      if (result.error) continue;
+      const xml = (result.attachments ?? []).find((one) => one.kind === "xml");
+      const fromXmlId = xml && globalThis.LilaXml.parse(xml.text)?.recipient;
+      if (fromXmlId) {
+        stated.push(fromXmlId);
+        continue;
+      }
+      for (const value of new Set(identityCandidates(textOf(result))))
+        votes.set(value, (votes.get(value) ?? 0) + 1);
+    }
+    for (const value of stated) votes.set(value, (votes.get(value) ?? 0) + 10);
+
+    const ranked = [...votes.entries()].sort((a, b) => b[1] - a[1]);
+    const best = ranked[0];
+    if (!best || best[1] < 2) return;
+    if (ranked[1] && ranked[1][1] === best[1]) return;
+
+    const cedula = best[0].slice(0, 10);
+    learned = best[0];
+    identity = {
+      cedula,
+      ruc: best[0].length === 13 ? best[0] : `${cedula}001`,
+    };
+    void chrome.storage.local.set(identity);
+    console.info(`[Lila] deduje tu identificación: ${learned}`);
+  }
+
   function recompute(includeSent = false) {
+    if (!identity.cedula) learnIdentity();
     const ready = [];
     const incomplete = [...done.unreadable];
     const already = [];
@@ -180,6 +230,7 @@
       progress: 100,
       already,
       needsId: !identity.cedula && incomplete.some(missingId),
+      learned,
       fixable: incomplete.filter(
         (record) => record.missing.length === 1 && missingId(record),
       ).length,

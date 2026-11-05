@@ -199,20 +199,22 @@ export function parseBackup(text: string): Invoice[] {
 export function parseBackupData(text: string): {
   records: Invoice[];
   recurring: RecurringExpense[];
+  cedula: string | null;
 } {
   const data = JSON.parse(text);
   if (
     data?.app !== "lila" ||
-    ![1, 2].includes(data.version) ||
+    ![1, 2, 3].includes(data.version) ||
     !Array.isArray(data.records) ||
-    (data.version === 2 && !Array.isArray(data.recurring))
+    (data.version >= 2 && !Array.isArray(data.recurring))
   )
     throw new Error(
       "La copia de seguridad no es válida o su versión no es compatible.",
     );
   return {
     records: data.records.map(validateInvoice),
-    recurring: data.version === 2 ? data.recurring.map(validateRecurring) : [],
+    recurring: data.version >= 2 ? data.recurring.map(validateRecurring) : [],
+    cedula: /^\d{10}$/.test(data.cedula ?? "") ? data.cedula : null,
   };
 }
 export function totals(records: Invoice[]) {

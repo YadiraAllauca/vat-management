@@ -225,6 +225,35 @@ const LilaParse = (() => {
     return null;
   }
 
+  const ID = /(?<!\d)(\d{13}|\d{10})(?!\d)/g;
+
+  function cedulaOk(id) {
+    if (!/^\d{10}$/.test(id)) return false;
+    const province = Number(id.slice(0, 2));
+    if (province < 1 || (province > 24 && province !== 30)) return false;
+    if (Number(id[2]) > 5) return false;
+    let total = 0;
+    for (let i = 0; i < 9; i += 1) {
+      const doubled = Number(id[i]) * (i % 2 === 0 ? 2 : 1);
+      total += doubled > 9 ? doubled - 9 : doubled;
+    }
+    return (10 - (total % 10)) % 10 === Number(id[9]);
+  }
+
+  function identityCandidates(text) {
+    const flat = String(text ?? "");
+    const emisores = new Set(clave.all(flat).map((one) => one.ruc));
+    const found = new Set();
+    for (const match of flat.matchAll(ID)) {
+      const value = match[0];
+      if (emisores.has(value)) continue;
+      if (value.length === 13 && !value.endsWith("001")) continue;
+      if (!cedulaOk(value.slice(0, 10))) continue;
+      found.add(value);
+    }
+    return [...found];
+  }
+
   function senderName(sender) {
     const name = String(sender || "")
       .replace(/<[^>]*>/g, "")
@@ -262,6 +291,12 @@ const LilaParse = (() => {
     const number = fields.serie ?? fields.reference ?? null;
 
     const missing = [];
+    if (
+      identity.cedula &&
+      typeof fields.ruc === "string" &&
+      fields.ruc.startsWith(identity.cedula)
+    )
+      missing.push("la emitiste tú, no es un gasto");
     if (!number) missing.push("número de la factura o de la transacción");
     if (!fields.fecha) missing.push("fecha de emisión");
     if (!recipient) missing.push(MISSING_ID);
@@ -380,6 +415,8 @@ const LilaParse = (() => {
     KEYWORDS,
     normalizeAmount,
     amountFor,
+    cedulaOk,
+    identityCandidates,
     sideOf,
     reference,
     firstAmount,

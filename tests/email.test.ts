@@ -284,3 +284,34 @@ test("el informe generado nunca parte una celda con tabulaciones ni saltos", () 
   assert.equal(report.split("\n").length, 2);
   assert.equal(report.split("\n")[1].split("\t").length, parse.HEADER.length);
 });
+
+const CEDULA_OK = "0912345675";
+
+test("reconoce una cédula ecuatoriana y descarta lo que solo lo parece", () => {
+  assert.equal(parse.cedulaOk(CEDULA_OK), true);
+  assert.equal(parse.cedulaOk("0998697244"), false);
+  assert.equal(parse.cedulaOk("2512345675"), false);
+  assert.equal(parse.cedulaOk("0962345675"), false);
+});
+
+test("deduce quién recibe la factura sin que nadie se lo diga", () => {
+  const text = `R.U.C.: 0999999999001 FACTURA CLAVE DE ACCESO ${CLAVE}
+TELÉFONO EMPRESA: 0998697244 Razón Social: CLIENTE DE PRUEBA ${CEDULA_OK}001`;
+  const found = parse.identityCandidates(text);
+  assert.deepEqual(found, [`${CEDULA_OK}001`]);
+});
+
+test("una factura que emitiste tú no entra como gasto", () => {
+  const record = parse.finalize(
+    {
+      serie: SERIE,
+      fecha: "15/03/2026",
+      recipient: "0999999999001",
+      total: "100.00",
+      ruc: `${CEDULA_OK}001`,
+    },
+    { cedula: CEDULA_OK },
+  );
+  assert.equal(record.complete, false);
+  assert.equal(record.missing[0], "la emitiste tú, no es un gasto");
+});

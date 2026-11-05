@@ -9,7 +9,7 @@ import {
 let connection: Promise<IDBDatabase> | undefined;
 function open() {
   return (connection ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("lila-invoices", 3);
+    const request = indexedDB.open("lila-invoices", 4);
     request.onupgradeneeded = (event) => {
       if (event.oldVersion < 1)
         request.result.createObjectStore("invoices", { keyPath: "id" });
@@ -32,6 +32,8 @@ function open() {
           entry.continue();
         };
       }
+      if (event.oldVersion < 4)
+        request.result.createObjectStore("settings", { keyPath: "key" });
     };
     request.onsuccess = () => {
       request.result.onversionchange = () => {
@@ -50,6 +52,27 @@ function open() {
     };
   }));
 }
+export async function readSetting(key: string): Promise<unknown> {
+  const db = await open();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction("settings").objectStore("settings").get(key);
+    request.onsuccess = () => resolve(request.result?.value);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function writeSetting(key: string, value: unknown) {
+  const db = await open();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("settings", "readwrite");
+    tx.objectStore("settings").put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onabort = () =>
+      reject(tx.error ?? new Error("No se pudo guardar el ajuste."));
+    tx.onerror = () => {};
+  });
+}
+
 export async function allInvoices(): Promise<Invoice[]> {
   const db = await open();
   return new Promise((resolve, reject) => {

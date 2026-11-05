@@ -348,6 +348,11 @@ const LilaPanel = (() => {
             : ""
         }
         ${
+          state.learned
+            ? `<p class="hint">Deduje que tu identificación es <b>${escape(state.learned)}</b>, porque se repite en tus facturas. Cámbiala en los ajustes si no es tuya.</p>`
+            : ""
+        }
+        ${
           state.needsId
             ? `<form class="ask" id="lila-ask">
                 <label for="lila-cedula">Tu cédula</label>
