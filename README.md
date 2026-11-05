@@ -131,7 +131,9 @@ the extension is connected in this browser, links straight to Gmail, explains
 each step of the flow, and otherwise lists what to do to load it. The two
 sides talk through document events, which only same-document code can dispatch:
 the extension marks `<html data-lila-extension>` and sends `lila:gmail-report`;
-the app answers with `lila:extension-ping` and `lila:extension-identity`. A tab
+the app answers with `lila:extension-ping` and `lila:extension-identity`. The
+bridge also reports the address Lila is served from, so **Enviar a Lila**
+focuses the deployment you actually use instead of a configured default. A tab
 left open while the extension reloads says so instead of failing silently. See
 `extension/README.md` to install it and to fix the Gmail selectors when Google
 changes its markup.

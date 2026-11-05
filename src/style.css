@@ -465,6 +465,38 @@ h1 {
   margin: 8px 0 19px;
   color: #69507e;
 }
+.stat-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.stat-edit {
+  opacity: 0.5;
+  transition:
+    opacity 0.15s ease,
+    background 0.15s ease;
+}
+.stat:hover .stat-edit,
+.stat-edit:hover,
+.stat-edit:focus-visible,
+.stat-edited .stat-edit {
+  opacity: 1;
+}
+.stat-edited {
+  border-color: #ddd0ec;
+  box-shadow: inset 3px 0 0 #c7aee4;
+}
+.stat-edited .stat-bottom span:first-child {
+  color: var(--purple, #7b57a3);
+  font-weight: 600;
+}
+.summary-edited {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  font-weight: 500;
+  color: #8a6cab;
+}
 .stat-bottom {
   border-top: 1px solid #f2eff6;
   padding-top: 13px;

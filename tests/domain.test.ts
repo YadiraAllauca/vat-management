@@ -14,6 +14,9 @@ import {
   validateInvoice,
   yearSummary,
   availableYears,
+  monthTotals,
+  overrideKey,
+  validateOverrides,
 } from "../src/domain.ts";
 import {
   allInvoices,
@@ -297,6 +300,7 @@ test("new backups restore templates and invoices atomically, keeping existing se
     records: [invoice],
     recurring: [template],
     cedula: null,
+    overrides: {},
   });
   await saveInvoices(backup.records, backup.recurring);
   assert.deepEqual(await allRecurring(), [template]);
@@ -433,5 +437,76 @@ test("la copia de seguridad lleva la cédula y la devuelve al restaurar", () => 
   assert.equal(
     parseBackupData(JSON.stringify({ ...base, cedula: "123" })).cedula,
     null,
+  );
+});
+
+test("un total escrito a mano reemplaza la suma de los registros del mes", () => {
+  const entries = [
+    at("2026-09", "APLICABLE IVA", 1000),
+    at("2026-09", "GASTOS PERSONALES", 250),
+  ];
+  const period = monthTotals(entries, "2026-09", {
+    [overrideKey("2026-09", "APLICABLE IVA")]: 4500,
+  });
+  assert.equal(period.totals["APLICABLE IVA"], 4500);
+  assert.equal(period.totals["GASTOS PERSONALES"], 250);
+  assert.equal(period.total, 4750);
+  assert.equal(period.count, 2);
+  assert.deepEqual(period.edited, ["APLICABLE IVA"]);
+  // Un mes sin ningún registro también puede llevar sus totales.
+  const alone = monthTotals([], "2026-09", {
+    [overrideKey("2026-09", "ACTIVIDADES SIN IVA")]: 3000,
+  });
+  assert.equal(alone.total, 3000);
+  assert.equal(alone.count, 0);
+  assert.deepEqual(alone.edited, ["ACTIVIDADES SIN IVA"]);
+});
+test("los totales a mano suman en el semestre y en el año", () => {
+  const summary = yearSummary([at("2026-02", "APLICABLE IVA", 1000)], "2026", {
+    [overrideKey("2026-02", "APLICABLE IVA")]: 2500,
+    [overrideKey("2026-08", "ACTIVIDADES SIN IVA")]: 700,
+  });
+  assert.equal(summary.months[1].totals["APLICABLE IVA"], 2500);
+  assert.equal(summary.months[7].total, 700);
+  assert.equal(summary.months[7].count, 0);
+  assert.equal(summary.semesters[0].total, 2500);
+  assert.equal(summary.semesters[1].total, 700);
+  assert.equal(summary.annual.total, 3200);
+  assert.equal(summary.annual.count, 1);
+  assert.deepEqual(summary.annual.edited, [
+    "APLICABLE IVA",
+    "ACTIVIDADES SIN IVA",
+  ]);
+});
+test("un total a mano inválido no se guarda", () => {
+  assert.deepEqual(validateOverrides(undefined), {});
+  assert.deepEqual(validateOverrides({ "2026-09|APLICABLE IVA": 100 }), {
+    "2026-09|APLICABLE IVA": 100,
+  });
+  assert.throws(() => validateOverrides({ "2026-13|APLICABLE IVA": 100 }));
+  assert.throws(() => validateOverrides({ "2026-09|OTRA COSA": 100 }));
+  assert.throws(() => validateOverrides({ "2026-09|APLICABLE IVA": -5 }));
+  assert.throws(() => validateOverrides({ "2026-09|APLICABLE IVA": 1.5 }));
+  assert.throws(() => validateOverrides({ "2026-09|APLICABLE IVA": "100" }));
+  assert.throws(() => validateOverrides([1, 2]));
+});
+test("la copia de seguridad conserva los totales escritos a mano", () => {
+  const invoice = at("2026-09", "APLICABLE IVA", 1000);
+  const backup = parseBackupData(
+    JSON.stringify({
+      app: "lila",
+      version: 4,
+      records: [invoice],
+      recurring: [],
+      overrides: { "2026-09|GASTOS PERSONALES": 5000 },
+    }),
+  );
+  assert.deepEqual(backup.overrides, { "2026-09|GASTOS PERSONALES": 5000 });
+  assert.deepEqual(backup.records, [invoice]);
+  assert.deepEqual(
+    parseBackupData(
+      JSON.stringify({ app: "lila", version: 3, records: [], recurring: [] }),
+    ).overrides,
+    {},
   );
 });

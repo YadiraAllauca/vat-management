@@ -200,11 +200,12 @@ export function parseBackupData(text: string): {
   records: Invoice[];
   recurring: RecurringExpense[];
   cedula: string | null;
+  overrides: Overrides;
 } {
   const data = JSON.parse(text);
   if (
     data?.app !== "lila" ||
-    ![1, 2, 3].includes(data.version) ||
+    ![1, 2, 3, 4].includes(data.version) ||
     !Array.isArray(data.records) ||
     (data.version >= 2 && !Array.isArray(data.recurring))
   )
@@ -215,6 +216,7 @@ export function parseBackupData(text: string): {
     records: data.records.map(validateInvoice),
     recurring: data.version >= 2 ? data.recurring.map(validateRecurring) : [],
     cedula: /^\d{10}$/.test(data.cedula ?? "") ? data.cedula : null,
+    overrides: data.version >= 4 ? validateOverrides(data.overrides) : {},
   };
 }
 export function totals(records: Invoice[]) {
@@ -237,19 +239,79 @@ export interface PeriodTotals {
   totals: Record<Category, number>;
   total: number;
   count: number;
+  // Categories whose total was written by hand instead of summed from records.
+  edited: Category[];
 }
-function period(records: Invoice[]): PeriodTotals {
+// A manual total replaces what the records add up to, for one month and
+// one category. Months without records can still carry a total this way.
+export type Overrides = Record<string, number>;
+export const overrideKey = (month: string, category: Category) =>
+  `${month}|${category}`;
+export function validateOverrides(value: unknown): Overrides {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value))
+    throw new Error("Los totales editados no son válidos.");
+  const clean: Overrides = {};
+  for (const [key, cents] of Object.entries(value as Record<string, unknown>)) {
+    const [month, category] = key.split("|");
+    if (
+      !/^\d{4}-(0[1-9]|1[0-2])$/.test(month ?? "") ||
+      !categories.includes(category as Category) ||
+      !Number.isSafeInteger(cents) ||
+      (cents as number) < 0
+    )
+      throw new Error(
+        "Hay un total editado con mes, categoría o valor inválido.",
+      );
+    clean[key] = cents as number;
+  }
+  return clean;
+}
+export function monthTotals(
+  records: Invoice[],
+  month: string,
+  overrides: Overrides = {},
+): PeriodTotals {
+  const ofMonth = records.filter((r) => r.month === month);
+  const sums = totals(ofMonth);
+  const edited: Category[] = [];
+  const amounts = Object.fromEntries(
+    categories.map((c) => {
+      const manual = overrides[overrideKey(month, c)];
+      if (manual === undefined) return [c, sums[c]];
+      edited.push(c);
+      return [c, manual];
+    }),
+  ) as Record<Category, number>;
   return {
-    totals: totals(records),
-    total: records.reduce((sum, r) => sum + r.cents, 0),
-    count: records.length,
+    totals: amounts,
+    total: categories.reduce((sum, c) => sum + amounts[c], 0),
+    count: ofMonth.length,
+    edited,
   };
 }
-export function yearSummary(records: Invoice[], year: string) {
+function addUp(periods: PeriodTotals[]): PeriodTotals {
+  return {
+    totals: Object.fromEntries(
+      categories.map((c) => [
+        c,
+        periods.reduce((sum, p) => sum + p.totals[c], 0),
+      ]),
+    ) as Record<Category, number>,
+    total: periods.reduce((sum, p) => sum + p.total, 0),
+    count: periods.reduce((sum, p) => sum + p.count, 0),
+    edited: categories.filter((c) => periods.some((p) => p.edited.includes(c))),
+  };
+}
+export function yearSummary(
+  records: Invoice[],
+  year: string,
+  overrides: Overrides = {},
+) {
   const ofYear = records.filter((r) => yearOf(r.month) === year);
   const months = Array.from({ length: 12 }, (_, i) => {
     const month = `${year}-${String(i + 1).padStart(2, "0")}`;
-    return { month, ...period(ofYear.filter((r) => r.month === month)) };
+    return { month, ...monthTotals(ofYear, month, overrides) };
   });
   const semesters = ([1, 2] as const).map((semester) => ({
     semester,
@@ -257,7 +319,7 @@ export function yearSummary(records: Invoice[], year: string) {
       `${year}-${semester === 1 ? "01" : "07"}`,
       `${year}-${semester === 1 ? "06" : "12"}`,
     ] as [string, string],
-    ...period(ofYear.filter((r) => semesterOf(r.month) === semester)),
+    ...addUp(months.filter((m) => semesterOf(m.month) === semester)),
   }));
-  return { year, months, semesters, annual: period(ofYear) };
+  return { year, months, semesters, annual: addUp(months) };
 }

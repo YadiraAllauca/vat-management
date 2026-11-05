@@ -39,6 +39,10 @@
         "ruc",
       ]);
       document.documentElement.dataset.lilaExtension = version;
+      void chrome.runtime.sendMessage({
+        type: "lila-aqui",
+        url: `${location.origin}${location.pathname}`,
+      });
       document.dispatchEvent(
         new CustomEvent("lila:extension-ready", {
           detail: { version, cedula, ruc },

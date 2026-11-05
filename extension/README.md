@@ -169,8 +169,26 @@ mismo documento. Ninguna página ajena entra por ahí.
 | `lila:extension-identity` | Lila             | La extensión guarda la cédula y el RUC.    |
 | `lila:extension-gone`     | El puente        | Lila vuelve a «sin conectar» y pide recargar. |
 
+El puente además le manda al service worker la dirección donde vive esa Lila,
+para que «Enviar a Lila» abra la correcta.
+
 Además el puente marca `<html data-lila-extension="versión">`, para que Lila
 sepa si está puesta aunque la app cargue después.
+
+### A qué pestaña de Lila va «Enviar a Lila»
+
+A la que de verdad estés usando. Cada vez que Lila carga, su puente le dice a la
+extensión en qué dirección vive, y ahí es donde el botón enfoca o abre. No hace
+falta configurar nada: si trabajas en producción, va a producción; si trabajas
+en `localhost`, va a `localhost`.
+
+Si escribes una dirección en la página de opciones, esa manda sobre la
+aprendida. Las versiones anteriores guardaban `http://localhost:5173/` ahí por
+su cuenta, sin que nadie la eligiera; al actualizar, ese valor se borra.
+
+**Si tienes Lila abierta dos veces** —producción y `localhost` a la vez— los
+registros se los lleva la primera pestaña que alcance la cola, que no
+necesariamente es la que se enfoca. Cierra la que no uses.
 
 ### Si tu Lila vive en un dominio propio
 

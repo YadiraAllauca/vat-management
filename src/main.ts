@@ -3,6 +3,9 @@ import {
   categories,
   amountToCents,
   keyFor,
+  monthTotals,
+  overrideKey,
+  type Overrides,
   parseReport,
   parseBackupData,
   pendingRecurring,
@@ -18,7 +21,9 @@ import {
   deleteInvoice,
   deleteMonth,
   allRecurring,
+  readOverrides,
   readSetting,
+  saveOverrides,
   writeSetting,
 } from "./db.ts";
 import {
@@ -89,8 +94,18 @@ const monthAlone = (month: string) =>
     new Date(`${month}-01T12:00:00Z`),
   );
 const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const statLabels = [
+  "Aplicable IVA",
+  "Actividades sin IVA",
+  "Gastos personales",
+];
+const statIcons = ["receipt", "chart", "heart"];
+const statHints = ["Base sin impuestos", "Total registrado", "Importe total"];
 let records: Invoice[] = [];
 let templates: RecurringExpense[] = [];
+// Totals written by hand, by month and category. They stand in for the
+// sum of the records, so a month without any can still carry a total.
+let overrides: Overrides = {};
 let month = nowMonth();
 // Year folders stay as the user leaves them; opening a month opens its year.
 const openYears = new Set<string>([yearOf(nowMonth())]);
@@ -105,6 +120,7 @@ let view: "records" | "backup" | "recurring" | "summary" | "email" =
   "records";
 let year = currentYear();
 let pending: Invoice[] = [];
+let pendingOverrides: Overrides = {};
 let busy = false;
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="/" aria-label="Lila, inicio"><span class="brand-mark">l<span>•</span></span><span>lila<span class="brand-sub">TUS CUENTAS, EN CALMA</span></span></a><button class="nav-item" id="home-nav">${icon("home")} Inicio</button><button class="nav-item" id="summary-nav">${icon("chart")} Resumen anual</button><div class="months-heading"><span>CARPETAS MENSUALES</span></div><nav id="months" aria-label="Carpetas mensuales"></nav><button class="nav-item add-month" id="add-month">${icon("plus")} Abrir un mes</button><div class="nav-bottom"><button class="nav-item" id="recurring-nav">${icon("settings")} Configuración</button><button class="nav-item" id="backup-nav">${icon("shield")} Copias de seguridad</button><button class="nav-item nav-extension" id="email-nav"><span class="nav-badge">${icon("puzzle")}</span>Gastos por correo</button></div></aside><main><header class="topbar"><div class="breadcrumb">Mi espacio <span>/</span> <strong id="crumb">Mis facturas</strong></div><span class="device-status"><i></i> Guardado en este dispositivo</span></header><div id="setup-banner" class="setup-banner" hidden>${icon("info")}<p><strong>Falta tu cédula.</strong> Sin ella, Lila no puede saber qué facturas van como gasto personal y cuáles aplican IVA.</p><button class="button secondary" id="setup-go">Configurarla ahora</button></div><div id="content"></div><footer class="main-footer"><span>Hecho para que tus cuentas sean más simples.</span><span>Lila <span class="footer-dot">✦</span> Tu espacio de claridad</span></footer></main></div><div id="dropzone" class="dropzone" aria-hidden="true"><div class="dropzone-card">${icon("upload")}<strong>Suelta tu archivo aquí</strong><span>.txt informe del SRI · .json copia de seguridad</span></div></div><div id="month-menu" role="menu" hidden></div><dialog id="modal"></dialog><div id="toast" role="status" aria-live="polite"></div><input type="file" id="report-file" accept=".txt,text/plain" hidden><input type="file" id="backup-file" accept=".json,application/json" hidden>`;
@@ -164,7 +180,14 @@ function render() {
   closeMonthMenu();
   const banner = document.querySelector<HTMLElement>("#setup-banner")!;
   banner.hidden = Boolean(identity?.cedula) || view === "recurring";
-  const months = [...new Set(records.map((r) => r.month))].sort().reverse();
+  const months = [
+    ...new Set([
+      ...records.map((r) => r.month),
+      ...Object.keys(overrides).map((key) => key.split("|")[0]),
+    ]),
+  ]
+    .sort()
+    .reverse();
   const years = [...new Set(months.map(yearOf))];
   document.querySelector("#months")!.innerHTML = years
     .map((y) => {
@@ -200,16 +223,17 @@ function render() {
     summary: "Resumen anual",
     email: "Gastos por correo",
   }[view];
-  if (view === "summary") return renderSummaryPage(summaryUI(), records, year);
+  if (view === "summary")
+    return renderSummaryPage(summaryUI(), records, year, overrides);
   if (view === "recurring")
     return renderRecurringPage(recurringUI(), templates, identity);
   if (view === "backup") return renderBackup();
   if (view === "email") return renderEmail();
   const current = records.filter((r) => r.month === month);
-  const sums = totals(current);
+  const period = monthTotals(records, month, overrides);
   const monthTotal = current.reduce((sum, r) => sum + r.cents, 0);
   const availableRecurring = pendingRecurring(templates, records, month).length;
-  content.innerHTML = `<div class="page-heading"><div><h1>Mis facturas<span class="heading-dot">.</span></h1></div><div class="heading-actions"><button class="button secondary" id="import">${icon("upload")} Importar informe</button><button class="button primary" id="new">${icon("plus")} Nuevo registro</button></div></div><section class="month-banner"><div class="month-title"><span class="calendar-icon">${icon("folder")}</span><div><span class="overline">CARPETA ABIERTA</span><h2>${titleCase(monthName(month))}</h2><p class="month-summary">${current.length ? `${current.length} ${current.length === 1 ? "factura guardada" : "facturas guardadas"} · ${money(monthTotal)} en total` : "Todavía sin facturas. Agrega un registro o importa un informe."}</p></div></div><div class="month-actions">${templates.length ? `<button class="button secondary" id="apply-recurring" ${availableRecurring ? "" : "disabled"}>${icon("plus")} Añadir recurrentes (${availableRecurring})</button>` : ""}<button class="button secondary" id="change-month">${icon("calendar")} Cambiar de mes</button></div></section><section class="stats" aria-label="Totales del mes">${categories.map((c, i) => `<article class="stat stat-${i}"><div class="stat-top"><span>${["Aplicable IVA", "Actividades sin IVA", "Gastos personales"][i]}</span><span class="stat-icon">${icon(["receipt", "chart", "heart"][i])}</span></div><strong>${money(sums[c])}</strong><div class="stat-bottom"><span>${current.filter((r) => r.category === c).length} registros</span><span>${["Base sin impuestos", "Total registrado", "Importe total"][i]}</span></div></article>`).join("")}</section><section class="records-panel" data-drop="report"><div class="panel-heading"><div><h2>Registros del mes <span class="pill">${current.length}</span></h2><p>Un lugar para todas tus facturas.</p></div><div class="month-total"><span>Total registrado</span><strong>${money(monthTotal)}</strong></div></div><div class="table-toolbar"><div class="tabs" role="group" aria-label="Filtrar por categoría">${["all", ...categories].map((c, i) => `<button class="tab ${category === c ? "chosen" : ""}" data-category="${c}">${["Todos", "Aplicable IVA", "Sin IVA", "Personales"][i]}</button>`).join("")}</div><label class="search">${icon("search")}<input id="search" placeholder="Buscar factura o detalle…" aria-label="Buscar factura o detalle" value="${escape(query)}"></label></div><div id="table-content"></div></section><div class="tip">${icon("info")}<span><strong>Tu información, contigo.</strong> Crea una copia de seguridad para conservar tus registros o llevarlos a otro dispositivo.</span><button class="button secondary" id="quick-backup">${icon("download")} Crear copia</button></div>`;
+  content.innerHTML = `<div class="page-heading"><div><h1>Mis facturas<span class="heading-dot">.</span></h1></div><div class="heading-actions"><button class="button secondary" id="import">${icon("upload")} Importar informe</button><button class="button primary" id="new">${icon("plus")} Nuevo registro</button></div></div><section class="month-banner"><div class="month-title"><span class="calendar-icon">${icon("folder")}</span><div><span class="overline">CARPETA ABIERTA</span><h2>${titleCase(monthName(month))}</h2><p class="month-summary">${current.length ? `${current.length} ${current.length === 1 ? "factura guardada" : "facturas guardadas"} · ${money(monthTotal)} en total` : period.edited.length ? `Sin facturas guardadas · ${money(period.total)} en totales editados a mano` : "Todavía sin facturas. Agrega un registro o importa un informe."}</p></div></div><div class="month-actions">${templates.length ? `<button class="button secondary" id="apply-recurring" ${availableRecurring ? "" : "disabled"}>${icon("plus")} Añadir recurrentes (${availableRecurring})</button>` : ""}<button class="button secondary" id="change-month">${icon("calendar")} Cambiar de mes</button></div></section><section class="stats" aria-label="Totales del mes">${categories.map((c, i) => `<article class="stat stat-${i} ${period.edited.includes(c) ? "stat-edited" : ""}"><div class="stat-top"><span>${statLabels[i]}</span><span class="stat-tools"><button type="button" class="icon-button stat-edit" data-edit-total="${c}" title="Editar total" aria-label="Editar el total de ${statLabels[i]} en ${escape(monthName(month))}">${icon("edit")}</button><span class="stat-icon">${icon(statIcons[i])}</span></span></div><strong>${money(period.totals[c])}</strong><div class="stat-bottom"><span>${period.edited.includes(c) ? `Total editado${current.filter((r) => r.category === c).length ? ` · ${current.filter((r) => r.category === c).length} registros` : ""}` : `${current.filter((r) => r.category === c).length} registros`}</span><span>${statHints[i]}</span></div></article>`).join("")}</section><section class="records-panel" data-drop="report"><div class="panel-heading"><div><h2>Registros del mes <span class="pill">${current.length}</span></h2><p>Un lugar para todas tus facturas.</p></div><div class="month-total"><span>Total registrado</span><strong>${money(monthTotal)}</strong></div></div><div class="table-toolbar"><div class="tabs" role="group" aria-label="Filtrar por categoría">${["all", ...categories].map((c, i) => `<button class="tab ${category === c ? "chosen" : ""}" data-category="${c}">${["Todos", "Aplicable IVA", "Sin IVA", "Personales"][i]}</button>`).join("")}</div><label class="search">${icon("search")}<input id="search" placeholder="Buscar factura o detalle…" aria-label="Buscar factura o detalle" value="${escape(query)}"></label></div><div id="table-content"></div></section><div class="tip">${icon("info")}<span><strong>Tu información, contigo.</strong> Crea una copia de seguridad para conservar tus registros o llevarlos a otro dispositivo.</span><button class="button secondary" id="quick-backup">${icon("download")} Crear copia</button></div>`;
   renderTable();
   document.querySelector("#apply-recurring")?.addEventListener("click", () => {
     void applyRecurring(recurringUI(), month, monthName(month));
@@ -238,7 +262,66 @@ function render() {
   document
     .querySelector("#quick-backup")!
     .addEventListener("click", exportBackup);
+  document.querySelectorAll<HTMLElement>("[data-edit-total]").forEach((b) =>
+    b.addEventListener("click", () =>
+      editTotal(b.dataset.editTotal as Invoice["category"]),
+    ),
+  );
 }
+async function storeOverrides(next: Overrides, message: string) {
+  if (busy) return;
+  busy = true;
+  try {
+    await saveOverrides(next);
+    overrides = next;
+    modal.close();
+    render();
+    toast(message);
+  } catch (e) {
+    modal.querySelector(".form-error")!.textContent = readableError(e);
+  } finally {
+    busy = false;
+  }
+}
+// Writing a total by hand replaces the sum of that month's records for one
+// category. It works the same whether the month has records or not.
+function editTotal(target: Invoice["category"]) {
+  const index = categories.indexOf(target);
+  const key = overrideKey(month, target);
+  const recorded = totals(records.filter((r) => r.month === month))[target];
+  const manual = overrides[key];
+  showModal(
+    `<span class="dialog-icon">${icon(statIcons[index])}</span><h2>Editar total de ${statLabels[index]}</h2><p class="dialog-description">${escape(titleCase(monthName(month)))}</p><form id="total-form"><label>Total (USD)<input name="amount" type="text" inputmode="decimal" required placeholder="0.00" value="${((manual ?? recorded) / 100).toFixed(2)}"></label><div class="field-hint">${recordedHint(recorded)} Este total reemplaza esa suma en la tarjeta y en el resumen anual, y se guarda con tus copias de seguridad.</div><p class="form-error" role="alert"></p><div class="dialog-actions">${manual === undefined ? "" : `<button type="button" class="button secondary" id="clear-total">Volver al calculado</button>`}<button type="button" class="button secondary" id="cancel">Cancelar</button><button class="button primary" type="submit">${icon("check")} Guardar total</button></div></form>`,
+  );
+  document
+    .querySelector("#cancel")!
+    .addEventListener("click", () => modal.close());
+  document.querySelector("#clear-total")?.addEventListener("click", () => {
+    const { [key]: _removed, ...rest } = overrides;
+    void storeOverrides(
+      rest,
+      "Total restaurado. Vuelve a sumar tus registros.",
+    );
+  });
+  document.querySelector<HTMLFormElement>("#total-form")!.onsubmit = (e) => {
+    e.preventDefault();
+    try {
+      const cents = amountToCents(
+        String(new FormData(e.currentTarget as HTMLFormElement).get("amount")),
+      );
+      void storeOverrides(
+        { ...overrides, [key]: cents },
+        `Total de ${statLabels[index]} guardado para ${monthName(month)}.`,
+      );
+    } catch (err) {
+      modal.querySelector(".form-error")!.textContent = readableError(err);
+    }
+  };
+}
+const recordedHint = (recorded: number) =>
+  recorded
+    ? `Los registros de este mes suman ${money(recorded)}.`
+    : "Este mes no tiene registros en esta categoría.";
 function renderTable() {
   const filtered = records
     .filter(
@@ -408,8 +491,11 @@ function confirmDelete(r: Invoice) {
 }
 function confirmDeleteMonth(targetMonth: string) {
   const entries = records.filter((r) => r.month === targetMonth);
+  const edited = Object.keys(overrides).filter(
+    (key) => key.split("|")[0] === targetMonth,
+  );
   showModal(
-    `<span class="dialog-icon">${icon("trash")}</span><h2>¿Eliminar ${escape(monthName(targetMonth))}?</h2><p class="dialog-description">Se eliminarán todos los registros de este mes, de las tres categorías, aunque tengas una búsqueda o un filtro activo.</p><div class="month-delete-summary"><strong>${entries.length} registros</strong><span>Total registrado: ${money(entries.reduce((sum, r) => sum + r.cents, 0))}</span></div><p class="field-hint">Esta acción no se puede deshacer. Podrás recuperar los registros si tienes una copia de seguridad anterior.</p><p class="form-error" role="alert"></p><div class="dialog-actions"><button class="button secondary" id="cancel-month-delete">Conservar mes</button><button class="button danger" id="confirm-month-delete">Eliminar mes y registros</button></div>`,
+    `<span class="dialog-icon">${icon("trash")}</span><h2>¿Eliminar ${escape(monthName(targetMonth))}?</h2><p class="dialog-description">Se eliminarán todos los registros de este mes, de las tres categorías, aunque tengas una búsqueda o un filtro activo.</p><div class="month-delete-summary"><strong>${entries.length} registros</strong><span>Total registrado: ${money(entries.reduce((sum, r) => sum + r.cents, 0))}</span></div>${edited.length ? `<p class="field-hint">También se borrarán ${edited.length} ${edited.length === 1 ? "total editado a mano" : "totales editados a mano"} de este mes.</p>` : ""}<p class="field-hint">Esta acción no se puede deshacer. Podrás recuperar los registros si tienes una copia de seguridad anterior.</p><p class="form-error" role="alert"></p><div class="dialog-actions"><button class="button secondary" id="cancel-month-delete">Conservar mes</button><button class="button danger" id="confirm-month-delete">Eliminar mes y registros</button></div>`,
   );
   const cancel = modal.querySelector<HTMLButtonElement>(
     "#cancel-month-delete",
@@ -428,11 +514,22 @@ function confirmDeleteMonth(targetMonth: string) {
     cancel.disabled = true;
     try {
       await deleteMonth(targetMonth);
+      const kept = Object.fromEntries(
+        Object.entries(overrides).filter(
+          ([key]) => key.split("|")[0] !== targetMonth,
+        ),
+      );
+      if (Object.keys(kept).length !== Object.keys(overrides).length) {
+        await saveOverrides(kept);
+        overrides = kept;
+      }
       records = await allInvoices();
       if (targetMonth === month) {
         selectMonth(
-          records
-            .map((r) => r.month)
+          [
+            ...records.map((r) => r.month),
+            ...Object.keys(overrides).map((key) => key.split("|")[0]),
+          ]
             .sort()
             .at(-1) ?? nowMonth(),
         );
@@ -472,6 +569,7 @@ async function previewImport(file: File, backup: boolean) {
           ...parseReport(text),
           recurring: [] as RecurringExpense[],
           cedula: null,
+          overrides: {} as Overrides,
         };
     if (parsed.cedula && !identity?.cedula)
       rememberIdentity({ cedula: parsed.cedula, ruc: `${parsed.cedula}001` });
@@ -483,6 +581,9 @@ async function previewImport(file: File, backup: boolean) {
       return true;
     });
     const unique = uniqueRecords(parsed.records, records);
+    pendingOverrides = Object.fromEntries(
+      Object.entries(parsed.overrides).filter(([key]) => !(key in overrides)),
+    );
     pending = unique.records;
     const sums = totals(pending);
     showModal(
@@ -495,7 +596,7 @@ async function previewImport(file: File, backup: boolean) {
               .map((m) => escape(monthName(m)))
               .join(", ")}.</p>`
           : ""
-      }${backup ? `<p class="field-hint">${newTemplates.length} plantillas recurrentes nuevas. La configuración existente se conservará.</p>` : ""}${parsed.errors.length ? `<details><summary>Revisar filas omitidas</summary><ul class="import-errors">${parsed.errors.map((e) => `<li>${escape(e)}</li>`).join("")}</ul></details>` : ""}<p class="form-error" role="alert"></p><div class="dialog-actions"><button class="button secondary" id="cancel">Cancelar</button><button class="button primary" id="confirm-import" ${pending.length || newTemplates.length ? "" : "disabled"}>${icon("check")} ${backup ? "Restaurar selección" : `Importar ${pending.length} registros`}</button></div>`,
+      }${backup ? `<p class="field-hint">${newTemplates.length} plantillas recurrentes nuevas y ${Object.keys(pendingOverrides).length} totales editados nuevos. Lo que ya tienes se conservará.</p>` : ""}${parsed.errors.length ? `<details><summary>Revisar filas omitidas</summary><ul class="import-errors">${parsed.errors.map((e) => `<li>${escape(e)}</li>`).join("")}</ul></details>` : ""}<p class="form-error" role="alert"></p><div class="dialog-actions"><button class="button secondary" id="cancel">Cancelar</button><button class="button primary" id="confirm-import" ${pending.length || newTemplates.length || Object.keys(pendingOverrides).length ? "" : "disabled"}>${icon("check")} ${backup ? "Restaurar selección" : `Importar ${pending.length} registros`}</button></div>`,
     );
     document
       .querySelector("#cancel")!
@@ -509,6 +610,10 @@ async function previewImport(file: File, backup: boolean) {
           document.querySelector<HTMLButtonElement>("#confirm-import")!;
         button.disabled = true;
         try {
+          if (Object.keys(pendingOverrides).length) {
+            overrides = { ...pendingOverrides, ...overrides };
+            await saveOverrides(overrides);
+          }
           const fresh = await allInvoices();
           const toSave = uniqueRecords(pending, fresh).records.map((r) => ({
             ...r,
@@ -560,11 +665,12 @@ async function exportBackup() {
         JSON.stringify(
           {
             app: "lila",
-            version: 3,
+            version: 4,
             exportedAt: new Date().toISOString(),
             records: fresh,
             recurring,
             cedula: identity?.cedula ?? null,
+            overrides,
           },
           null,
           2,
@@ -579,7 +685,7 @@ async function exportBackup() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast(
-      `Copia descargada con ${fresh.length} registros y ${recurring.length} plantillas.`,
+      `Copia descargada con ${fresh.length} registros, ${recurring.length} plantillas y ${Object.keys(overrides).length} totales editados.`,
     );
   } catch (e) {
     toast(readableError(e), true);
@@ -905,8 +1011,9 @@ try {
     allInvoices(),
     allRecurring(),
     readSetting("identity"),
+    readOverrides(),
   ]);
-  [records, templates] = [saved[0], saved[1]];
+  [records, templates, overrides] = [saved[0], saved[1], saved[3]];
   identity = asIdentity((saved[2] as { cedula?: unknown } | undefined)?.cedula);
   if (records.length)
     selectMonth(

@@ -1,6 +1,7 @@
 import {
   availableYears,
   categories,
+  type Overrides,
   yearOf,
   yearSummary,
   type Invoice,
@@ -20,8 +21,19 @@ const monthOnly = (month: string) =>
     new Date(`${month}-01T12:00:00Z`),
   );
 export const currentYear = () => String(new Date().getFullYear());
-export function summaryYears(records: Invoice[], selected: string) {
-  return [...new Set([...availableYears(records), currentYear(), selected])]
+export function summaryYears(
+  records: Invoice[],
+  selected: string,
+  overrides: Overrides = {},
+) {
+  return [
+    ...new Set([
+      ...availableYears(records),
+      ...Object.keys(overrides).map((key) => yearOf(key.split("|")[0])),
+      currentYear(),
+      selected,
+    ]),
+  ]
     .sort()
     .reverse();
 }
@@ -29,10 +41,13 @@ export function renderSummaryPage(
   ui: SummaryUI,
   records: Invoice[],
   year: string,
+  overrides: Overrides = {},
 ) {
   const { content, icon, money, titleCase } = ui;
-  const summary = yearSummary(records, year);
-  const years = summaryYears(records, year);
+  const summary = yearSummary(records, year, overrides);
+  const years = summaryYears(records, year, overrides);
+  // A year can hold totals written by hand and no records at all.
+  const hasData = Boolean(summary.annual.count || summary.annual.total);
   const cells = (period: PeriodTotals) =>
     `${categories.map((c) => `<td class="amount">${money(period.totals[c])}</td>`).join("")}<td class="amount row-amount">${money(period.total)}</td><td class="amount count-cell">${period.count}</td>`;
   const semesterRow = (index: number) => {
@@ -42,23 +57,23 @@ export function renderSummaryPage(
   content.innerHTML = `<div class="page-heading"><div><h1>Resumen anual<span class="heading-dot">.</span></h1><p>Cada mes, cada semestre y el año completo.</p></div><div class="heading-actions"><label class="month-picker">Año <select id="summary-year" aria-label="Año del resumen">${years.map((y) => `<option value="${y}" ${y === year ? "selected" : ""}>${y}</option>`).join("")}</select></label></div></div><section class="stats" aria-label="Totales del año ${year}">${categories
     .map(
       (c, i) =>
-        `<article class="stat stat-${i}"><div class="stat-top"><span>${labels[i]}</span><span class="stat-icon">${icon(["receipt", "chart", "heart"][i])}</span></div><strong>${money(summary.annual.totals[c])}</strong><div class="stat-bottom"><span>${summary.annual.count ? `${records.filter((r) => yearOf(r.month) === year && r.category === c).length} registros` : "Sin registros"}</span><span>Año ${year}</span></div></article>`,
+        `<article class="stat stat-${i} ${summary.annual.edited.includes(c) ? "stat-edited" : ""}"><div class="stat-top"><span>${labels[i]}</span><span class="stat-icon">${icon(["receipt", "chart", "heart"][i])}</span></div><strong>${money(summary.annual.totals[c])}</strong><div class="stat-bottom"><span>${summary.annual.edited.includes(c) ? "Incluye totales editados" : summary.annual.count ? `${records.filter((r) => yearOf(r.month) === year && r.category === c).length} registros` : "Sin registros"}</span><span>Año ${year}</span></div></article>`,
     )
     .join(
       "",
     )}</section><section class="records-panel"><div class="panel-heading"><div><h2>Mes a mes <span class="pill">${year}</span></h2><p>Los meses sin registros se muestran en cero.</p></div><div class="month-total"><span>Total del año</span><strong>${money(summary.annual.total)}</strong></div></div>${
-    summary.annual.count
+    hasData
       ? `<div class="table-scroll"><table class="summary-table"><thead><tr><th>MES</th>${categories.map((_, i) => `<th class="amount">${labels[i].toUpperCase()}</th>`).join("")}<th class="amount">TOTAL</th><th class="amount">REGISTROS</th></tr></thead><tbody>${summary.months
           .slice(0, 6)
           .map(
             (m) =>
-              `<tr class="${m.count ? "" : "summary-empty"}"><th scope="row"><span class="summary-period">${titleCase(monthOnly(m.month))}</span></th>${cells(m)}</tr>`,
+              `<tr class="${m.count || m.total ? "" : "summary-empty"}"><th scope="row"><span class="summary-period">${titleCase(monthOnly(m.month))}</span>${m.edited.length ? `<small class="summary-edited">Total editado</small>` : ""}</th>${cells(m)}</tr>`,
           )
           .join("")}${semesterRow(0)}${summary.months
           .slice(6)
           .map(
             (m) =>
-              `<tr class="${m.count ? "" : "summary-empty"}"><th scope="row"><span class="summary-period">${titleCase(monthOnly(m.month))}</span></th>${cells(m)}</tr>`,
+              `<tr class="${m.count || m.total ? "" : "summary-empty"}"><th scope="row"><span class="summary-period">${titleCase(monthOnly(m.month))}</span>${m.edited.length ? `<small class="summary-edited">Total editado</small>` : ""}</th>${cells(m)}</tr>`,
           )
           .join("")}${semesterRow(1)}</tbody><tfoot><tr class="summary-annual"><th scope="row"><span class="summary-period">Total del año</span><small>Enero–diciembre ${year}</small></th>${cells(summary.annual)}</tr></tfoot></table></div>`
       : `<div class="empty"><span class="empty-icon">${icon("chart")}</span><h3>Todavía no hay nada que sumar en ${year}</h3><p>Importa un informe o agrega registros en ese año<br>y aquí verás sus totales por mes, semestre y año.</p></div>`

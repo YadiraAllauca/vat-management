@@ -24,6 +24,11 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     respond({ ok: true });
     return true;
   }
+  if (message?.type === "lila-aqui") {
+    void chrome.storage.local.set({ lastLila: message.url });
+    respond({ ok: true });
+    return true;
+  }
   if (message?.type === "opciones") {
     chrome.runtime.openOptionsPage();
     respond({ ok: true });
@@ -93,8 +98,12 @@ async function readAll(candidates, inboxTabId) {
 async function queue({ report, keys }) {
   if (typeof report !== "string" || !report.includes("\t"))
     throw new Error("El informe llegó vacío.");
-  const stored = await chrome.storage.local.get(["lilaUrl", "pending", "sent"]);
-  const url = stored.lilaUrl || DEFAULT_URL;
+  const stored = await chrome.storage.local.get([
+    "lilaUrl",
+    "lastLila",
+    "pending",
+    "sent",
+  ]);
   const pending = [
     ...(stored.pending ?? []),
     { report, at: new Date().toISOString() },
@@ -104,14 +113,22 @@ async function queue({ report, keys }) {
   );
   await chrome.storage.local.set({ pending, sent });
 
-  const origin = new URL(url).origin;
-  const open = await chrome.tabs.query({ url: `${origin}/*` });
-  if (open.length) {
-    await chrome.tabs.update(open[0].id, { active: true });
-    await chrome.windows.update(open[0].windowId, { focused: true });
-  } else {
-    await chrome.tabs.create({ url });
+  const known = [stored.lilaUrl, stored.lastLila].filter(Boolean);
+  for (const value of known) {
+    let origin;
+    try {
+      origin = new URL(value).origin;
+    } catch {
+      continue;
+    }
+    const open = await chrome.tabs.query({ url: `${origin}/*` });
+    if (!open.length) continue;
+    const tab = open.find((one) => one.active) ?? open[0];
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+    return;
   }
+  await chrome.tabs.create({ url: known[0] ?? DEFAULT_URL });
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -120,5 +137,5 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.runtime.onInstalled.addListener(async () => {
   const { lilaUrl } = await chrome.storage.local.get("lilaUrl");
-  if (!lilaUrl) await chrome.storage.local.set({ lilaUrl: DEFAULT_URL });
+  if (lilaUrl === DEFAULT_URL) await chrome.storage.local.remove("lilaUrl");
 });

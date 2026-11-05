@@ -2,8 +2,10 @@ import {
   monthNumberKey,
   recurringKey,
   validateInvoice,
+  validateOverrides,
   validateRecurring,
   type Invoice,
+  type Overrides,
   type RecurringExpense,
 } from "./domain.ts";
 let connection: Promise<IDBDatabase> | undefined;
@@ -71,6 +73,19 @@ export async function writeSetting(key: string, value: unknown) {
       reject(tx.error ?? new Error("No se pudo guardar el ajuste."));
     tx.onerror = () => {};
   });
+}
+
+export async function readOverrides(): Promise<Overrides> {
+  try {
+    return validateOverrides(await readSetting("overrides"));
+  } catch {
+    // A corrupted settings entry must not keep the app from opening.
+    return {};
+  }
+}
+
+export async function saveOverrides(overrides: Overrides) {
+  return writeSetting("overrides", validateOverrides(overrides));
 }
 
 export async function allInvoices(): Promise<Invoice[]> {
