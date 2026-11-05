@@ -619,8 +619,6 @@ function knownIdentity() {
 
 function syncIdentity() {
   if (identity?.cedula) {
-    // Solo si la extensión tiene otra cosa: al guardarla ella vuelve a
-    // anunciarse, y empujar de nuevo dejaría a las dos rebotando sin fin.
     if (extensionVersion() && extensionCedula !== identity.cedula)
       document.dispatchEvent(
         new CustomEvent("lila:extension-identity", { detail: identity }),
@@ -637,7 +635,7 @@ function renderEmail() {
     version
       ? `<div class="card-actions"><a class="button secondary" id="open-gmail" href="${GMAIL_URL}" target="_blank" rel="noopener">${icon("mail")} Usar en Gmail</a></div>`
       : `<p>Cárgala una vez en este navegador y recarga esta página: Lila la reconoce sola.</p><ol class="steps"><li>Abre <code>chrome://extensions</code> y activa el modo de desarrollador.</li><li>Pulsa «Cargar descomprimida» y elige la carpeta <code>extension/</code> del proyecto.</li></ol>`
-  }</div><div class="how"><h3>Cómo funciona</h3><ol class="flow"><li><strong>Abres Gmail.</strong> La extensión mira la bandeja y marca los correos que parecen facturas o pagos. Te avisa en una tarjeta, abajo a la derecha.</li><li><strong>Pulsas «Aplicar».</strong> Cada correo marcado se abre en una pestaña en segundo plano. Tu bandeja no se mueve de sitio.</li><li><strong>Lee cada factura.</strong> Primero el XML adjunto, que trae los campos exactos; si no hay, saca el texto del PDF y de ahí la clave de acceso, con la que deduce serie y fecha; en último caso, las etiquetas del propio correo.</li><li><strong>Revisas la lista.</strong> Verás lo que quedó completo, lo que ya habías enviado antes y, aparte, los correos a los que les faltaron datos y qué les falta.</li><li><strong>Las envías.</strong> Lila las guarda sola en el mes de cada factura y te lleva a ese mes. Las repetidas se omiten.</li></ol></div></div>`;
+  }</div><div class="how"><h3>Cómo funciona</h3><ol class="flow"><li><strong>Abres Gmail.</strong> La extensión mira la bandeja y marca los correos que parecen facturas o pagos. Te avisa en una tarjeta, abajo a la derecha.</li><li><strong>Pulsas «Leer y extraer».</strong> Cada correo marcado se abre en una pestaña en segundo plano. Tu bandeja no se mueve de sitio.</li><li><strong>Lee cada factura.</strong> Primero el XML adjunto, que trae los campos exactos; si no hay, saca el texto del PDF y de ahí la clave de acceso, con la que deduce serie y fecha; en último caso, las etiquetas del propio correo.</li><li><strong>Revisas la lista.</strong> Verás lo que quedó completo, lo que ya habías enviado antes y, aparte, los correos a los que les faltaron datos y qué les falta.</li><li><strong>Las envías.</strong> Lila las guarda sola en el mes de cada factura y te lleva a ese mes. Las repetidas se omiten.</li></ol></div></div>`;
   document.dispatchEvent(new Event("lila:extension-ping"));
 }
 

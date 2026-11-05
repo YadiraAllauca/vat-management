@@ -38,8 +38,8 @@ Use the stable production URL for everyday work: IndexedDB belongs to each brows
 
 - Create, edit, and delete invoices with invoice number, emission month, category, description, and USD amount.
 - Delete a complete month from its own folder: the three-dot button in the sidebar opens the folder menu, and the confirmation states the month's name, record count, and total. This removes all categories regardless of active filters; other months are preserved, and deleting a month you are not currently viewing keeps you where you are. Empty months disappear from the folder list.
-- Monthly folders grouped into year folders in the sidebar, each year collapsible and showing its record count; the year holding the open month is marked. The sidebar opens on the month folders themselves, without a separate invoices entry.
-- Open any month from the folder header's **Cambiar de mes** or the sidebar's **+**, both opening the same picker: the twelve months of a year in Spanish, each showing how many invoices it holds, with year arrows and a shortcut to the current month. Months without invoices open empty.
+- Monthly folders grouped into year folders in the sidebar, each year collapsible and showing its record count; the year holding the open month is marked. **Inicio** returns to the current month with filters and search cleared.
+- Open any month from the folder header's **Cambiar de mes** or the sidebar's **Abrir un mes**, both opening the same picker: the twelve months of a year in Spanish, each showing how many invoices it holds, with year arrows and a shortcut to the current month. Months without invoices open empty.
 - The open folder states what it holds: its name, how many invoices it has, and their total.
 - Independent totals for all three categories, category filters, text search, and pagination.
 - Preview and import tab-separated SRI received-invoice reports, with line-level validation and duplicate detection.
@@ -48,6 +48,20 @@ Use the stable production URL for everyday work: IndexedDB belongs to each brows
 - Global recurring-expense templates: add, edit, remove with confirmation, and apply selected templates once per month.
 - Download a complete JSON backup and merge a backup into the current device without overwriting existing invoices.
 - Responsive layouts, labeled controls, keyboard-accessible dialogs, and explicit storage errors. On phones each invoice reads as a card with its amount and actions in view, and the yearly summary keeps the month column pinned while the amounts scroll.
+
+## Your national ID
+
+Lila stores one number: your 10-digit cédula, from which the RUC is derived by
+appending `001`. It decides how an invoice is classified when the document does
+not state a recipient, and it lets the Gmail extension tell your own invoices
+apart from everyone else's. Set it in **Configuración**; until it is set, a
+banner across every view says so.
+
+It is kept in the `settings` store of the same IndexedDB database, travels in
+backups, and is mirrored to the extension, which needs its own copy to work in
+Gmail while Lila is closed. Lila's copy wins when the two differ. Lila also
+learns it on its own: from the recipient of the invoices already imported, or
+from what the extension deduced in Gmail.
 
 ## Import rules
 
@@ -87,32 +101,44 @@ as before.
 The extension prefers the invoice's **XML attachment**, which carries every
 field exactly; failing that, it extracts the text of a **PDF attachment** using
 only the browser's own decompression; failing that, it rebuilds the record from
-the 49-digit SRI access key found in the message text, which yields the emission date, the issuer RUC,
-and the complete `SERIE_COMPROBANTE`; failing that, it reads labelled amounts
-from the text, including the wording banks use for debit alerts. When a message
-does not state whose invoice it is, the record is filed as `GASTOS PERSONALES`
-with the total, under the configured national ID. A record numbered with a bank
-reference rather than a comprobante series is not recognized as a duplicate of
-the monthly SRI report. It then writes the records in this app's own tab-separated
-report format, so `parseReport` performs the validation, the recipient-length
-classification, and the duplicate detection. Because the invoice number is the
-real one, a record imported from email is recognized as a duplicate when the
-monthly SRI report arrives later. Emails missing any required field are listed
-as incomplete and never sent; invoice numbers are not fabricated.
+the 49-digit SRI access key found in the message text, which yields the emission
+date, the issuer RUC, and the complete `SERIE_COMPROBANTE`; failing that, it
+reads labelled amounts from the text, in Spanish and English, including the
+wording banks use for debit alerts. Attachments are typed by their first bytes,
+not by filename. When a document states no VAT, the total is also taken as the
+amount excluding taxes. When a message does not state whose invoice it is, the
+record is filed as `GASTOS PERSONALES` with the total, under your national ID.
+An invoice whose issuer RUC is yours is one you issued, so it is listed and
+never filed as an expense. A record numbered with a bank reference rather than a
+comprobante series is not recognized as a duplicate of the monthly SRI report.
+It then writes the records in this app's own tab-separated report format, so
+`parseReport` performs the validation, the recipient-length classification, and
+the duplicate detection. Because the invoice number is the real one, a record
+imported from email is recognized as a duplicate when the monthly SRI report
+arrives later. Emails missing any required field are listed as incomplete and
+never sent; invoice numbers are not fabricated.
 
-**Facturas por correo** in the sidebar is the app side of it: it states whether
-the extension is connected in this browser, holds the national ID and RUC the
-extension classifies with, links straight to Gmail, opens the extension's own
-settings, and otherwise lists the steps to load it. The two
+Reading a RIDE took two corrections worth recording, both verified against real
+invoices: a PDF content stream usually ends with a newline before `endstream`,
+which makes `DecompressionStream` raise a trailing-junk error *after* it has
+already produced the whole text, so the output is read in chunks and kept; and
+the amounts of a RIDE are drawn *before* their labels (`34.99 VALOR TOTAL`),
+unlike an email body (`Total: $10.00`), so the document itself decides which
+side to read.
+
+**Gastos por correo** in the sidebar is the app side of it: it states whether
+the extension is connected in this browser, links straight to Gmail, explains
+each step of the flow, and otherwise lists what to do to load it. The two
 sides talk through document events, which only same-document code can dispatch:
 the extension marks `<html data-lila-extension>` and sends `lila:gmail-report`;
-the app answers with `lila:extension-ping` and `lila:extension-options`. See
+the app answers with `lila:extension-ping` and `lila:extension-identity`. A tab
+left open while the extension reloads says so instead of failing silently. See
 `extension/README.md` to install it and to fix the Gmail selectors when Google
 changes its markup.
 
 ## Recurring expenses
 
-Open **Gastos recurrentes** in the sidebar to manage global templates. Each template stores a name, category, description, and monthly USD amount. Add, edit, or remove templates as your expenses change. Removing a template requires confirmation. Changes affect future applications only; existing invoices are preserved.
+Open **Configuración** in the sidebar to manage global templates, alongside your national ID. Each template stores a name, category, description, and monthly USD amount. Add, edit, or remove templates as your expenses change. Removing a template requires confirmation. Changes affect future applications only; existing invoices are preserved.
 
 In **Mis facturas**, select a month and choose **Añadir recurrentes**. Select the templates to use, enter the actual invoice numbers, adjust amounts if necessary, and confirm the batch. Invoice numbers are intentionally not fabricated or reused across months. Unchecked templates remain available for later. Generation is explicit; opening a month does not create invoices automatically.
 
@@ -129,14 +155,15 @@ Backup format:
 ```json
 {
   "app": "lila",
-  "version": 2,
+  "version": 3,
   "exportedAt": "2026-10-21T12:00:00.000Z",
   "records": [],
-  "recurring": []
+  "recurring": [],
+  "cedula": "0912345675"
 }
 ```
 
-Version 1 backups (invoices only) remain supported. The IndexedDB schema upgrades from version 1 or 2 to version 3 without deleting existing invoices; the version 3 upgrade rekeys stored invoices so uniqueness applies within each month. Template IDs and invoice recurrence links are preserved across backups.
+Version 1 backups (invoices only) and version 2 backups (without `cedula`) remain supported. Restoring adopts the backup's `cedula` only when this browser has none. The IndexedDB schema upgrades from any earlier version without deleting existing invoices: version 3 rekeys stored invoices so uniqueness applies within each month, and version 4 adds the `settings` store that holds your national ID. Template IDs and invoice recurrence links are preserved across backups.
 
 The complete backup is validated before a transaction begins. Writes are atomic: a failed batch does not partially import. Backup record IDs are regenerated during restoration to prevent ID collisions with existing data.
 
@@ -147,7 +174,7 @@ npm test
 npm run build
 ```
 
-Tests cover generated fictional reports, recipient classification, integer-cent totals, malformed rows, per-month duplicates, month, semester and yearly totals, backup validation and round trips, schema migration, recurring settings, monthly recurrence uniqueness, backup compatibility, transactional rollback, actual IndexedDB operations using `fake-indexeddb`, and the Gmail extension's access-key decoding, amount normalization, and report round trip.
+Tests cover generated fictional reports, recipient classification, integer-cent totals, malformed rows, per-month duplicates, month, semester and yearly totals, backup validation and round trips, schema migration, recurring settings, monthly recurrence uniqueness, backup compatibility, transactional rollback, and actual IndexedDB operations using `fake-indexeddb`. For the Gmail extension they cover access-key decoding and its check digit, amount normalization, labels read on either side of their value, a whole RIDE through `parseReport`, PDF text recovered from a stream that ends in trailing junk, kerning that must not split words, English receipts, cédula validation, deducing the recipient without being told, and refusing an invoice you issued yourself. All test data is fictional.
 
 ## Project structure
 

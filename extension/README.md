@@ -69,13 +69,35 @@ sin impuestos; de **10 dígitos** → `GASTOS PERSONALES` con el importe total.
 
 Cuando el correo **no dice** a nombre de quién está —el caso típico de un aviso
 del banco— se trata como **gasto personal con el importe total**, usando la
-cédula de los ajustes. Equivocarse hacia ese lado no infla una deducción de IVA,
+cédula conocida. Equivocarse hacia ese lado no infla una deducción de IVA,
 porque los gastos personales no se deducen.
 
-Si no has configurado tu cédula, esos correos quedan en «sin datos
-suficientes» diciendo justamente eso, y el panel te ofrece el campo ahí mismo:
-al guardarla, la lista se recalcula sin reabrir ningún correo. También se puede
-escribir en Lila, en **Facturas por correo**.
+Si el documento no menciona IVA, no hay nada que separar: el importe total pasa
+también como valor sin impuestos.
+
+### Cómo sabe cuál es tu cédula
+
+No hace falta configurarla antes de usarla. En orden:
+
+1. **El XML lo dice.** `identificacionComprador` es tu número, sin ambigüedad, y
+   de paso se aprende para los demás correos de la tanda.
+2. **Se deduce del RIDE.** Se buscan los números de 10 o 13 dígitos del
+   documento, se descarta el RUC del emisor —está dentro de la clave de
+   acceso— y se exige el **dígito verificador del registro civil**, que es lo
+   que descarta los teléfonos. Se adopta solo si el mismo número aparece en dos
+   facturas distintas, y el panel dice cuál dedujo.
+3. **La escribes tú**, en Lila → **Configuración**. Lila la guarda en su propia
+   base y se la pasa a la extensión.
+
+Mientras no haya ninguna, los correos sin receptor quedan en «sin datos
+suficientes» diciendo «falta tu cédula», y el panel ofrece el campo ahí mismo:
+al guardarla, la lista se recalcula sin reabrir ningún correo.
+
+### Una factura que emitiste tú no es un gasto tuyo
+
+Si el RUC del emisor —el que va dentro de la clave de acceso— empieza con tu
+cédula, la factura es de las que tú emites a tus clientes. No entra como gasto:
+queda listada con el motivo «la emitiste tú, no es un gasto».
 
 ## El número del registro
 
@@ -119,16 +141,18 @@ inventa números de factura.
 
 ## Instalar
 
-Lila te guía: abre **Facturas por correo** en su menú lateral y sigue los pasos
+Lila te guía: abre **Gastos por correo** en su menú lateral y sigue los pasos
 de la tarjeta. En resumen:
 
 1. Abre `chrome://extensions`, activa **Modo de desarrollador**.
 2. **Cargar descomprimida** y elige esta carpeta `extension/`.
-3. Vuelve a Lila. La tarjeta pasa a «Conectada en este navegador» sola.
-4. Escribe tu **cédula** y tu **RUC** en esa misma tarjeta y guarda. Se
-   guardan en la extensión, en este navegador. La dirección de Lila y el resto
-   están en **Más ajustes de la extensión**.
-5. Pulsa **Usar en Gmail**. Si la bandeja tiene facturas, el panel aparece solo.
+3. Recarga Lila. La tarjeta pasa a «Conectada en este navegador» sola.
+4. Pulsa **Usar en Gmail**. Si la bandeja tiene facturas, el panel aparece solo.
+
+Tu cédula se escribe en Lila → **Configuración**, no aquí, y solo si quieres
+que el primer escaneo salga completo; si no, la extensión la deduce. La
+dirección de Lila que usa la extensión vive en su página de opciones, que se
+abre desde el menú de extensiones de Chrome.
 
 ### La conexión entre Lila y la extensión
 
@@ -143,6 +167,7 @@ mismo documento. Ninguna página ajena entra por ahí.
 | `lila:extension-ping`     | Lila             | El puente vuelve a anunciarse.             |
 | `lila:extension-options`  | Lila             | La extensión abre sus propios ajustes.     |
 | `lila:extension-identity` | Lila             | La extensión guarda la cédula y el RUC.    |
+| `lila:extension-gone`     | El puente        | Lila vuelve a «sin conectar» y pide recargar. |
 
 Además el puente marca `<html data-lila-extension="versión">`, para que Lila
 sepa si está puesta aunque la app cargue después.
@@ -197,6 +222,9 @@ es mantenimiento recurrente, no una instalación de una sola vez.
 | `background.js`      | Abre y cierra las pestañas lectoras, guarda la cola, abre Lila.  |
 | `options.html/.js`   | Dirección de Lila, cédula y RUC.                                |
 
+`lila:extension-options` sigue funcionando, pero hoy ningún botón de Lila lo
+dispara: las opciones se abren desde el menú de extensiones de Chrome.
+
 Las piezas que no dependen del navegador se prueban con el resto del proyecto:
 `npm test` cubre la clave de acceso, los montos, la clasificación y el ida y
 vuelta por `parseReport`.
@@ -212,8 +240,10 @@ vuelta por `parseReport`.
   fila, ese correo se reporta como no legible en vez de abrirse a ciegas.
 - **Cada emisor escribe distinto.** Las palabras que disparan la detección
   están en `KEYWORDS`, y las etiquetas de montos en `TOTAL_LABELS`,
-  `BASE_LABELS`, `IVA_LABELS` y `BANK_LABELS`, todas en `src/parse.js`. Si un
-  emisor tuyo queda siempre incompleto, agrega su etiqueta ahí. Para probar si
+  `BASE_LABELS`, `IVA_LABELS` y `BANK_LABELS`, todas en `src/parse.js`. Hay
+  palabras en español y en inglés, porque un recibo de GitHub o de PayPal no
+  dice «pago» en ninguna parte. Si un emisor tuyo queda siempre incompleto,
+  agrega su etiqueta ahí. Para probar si
   un asunto se detectaría: `lila.probar("Débito a su cuenta por $15")`.
 - **Las palabras amplias traen falsos positivos.** «pago» o «consumo» aparecen
   en promociones. Cuestan una pestaña abierta y un correo marcado como leído.
