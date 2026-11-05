@@ -74,6 +74,13 @@ const LilaPanel = (() => {
       background: #7046aa;
     }
     .action:hover:not(:disabled) { background: #5d3792; }
+    .action.ghost {
+      margin-top: 8px;
+      color: #7a6a8c;
+      background: transparent;
+      border: 1px solid #e6e1ed;
+    }
+    .action.ghost:hover:not(:disabled) { background: #f6f1fc; color: #7046aa; }
     ul { margin: 12px 0 0; padding: 0; list-style: none; }
     li { padding: 9px 0; border-top: 1px solid #f3f2f7; }
     li:first-child { border-top: 0; }
@@ -234,6 +241,9 @@ const LilaPanel = (() => {
         .querySelector("#lila-include")
         ?.addEventListener("click", () => this.handlers.onIncludeSent?.());
       this.frame
+        .querySelector("#lila-rescan")
+        ?.addEventListener("click", () => this.handlers.onRescan?.());
+      this.frame
         .querySelector("#lila-ask")
         ?.addEventListener("submit", (event) => {
           event.preventDefault();
@@ -251,6 +261,20 @@ const LilaPanel = (() => {
     }
 
     content(state) {
+      if (state.name === "nada")
+        return `<p class="status" aria-live="polite">${
+          state.fuera
+            ? "Esto no es una lista de correos."
+            : "No vi facturas en esta bandeja."
+        }</p>
+          <p class="hint">${
+            state.fuera
+              ? "Vuelve a la bandeja o a una etiqueta y pulsa aquí de nuevo."
+              : "Miro el remitente, el asunto y el fragmento de cada fila, más la etiqueta que les hayas puesto."
+          }</p>
+          <button class="action" type="button" id="lila-rescan">Buscar otra vez</button>
+          <button class="action ghost" type="button" id="lila-close">Cerrar</button>`;
+
       if (state.name === "found")
         return `<p class="status" aria-live="polite">${plural(
           state.candidates,
@@ -276,7 +300,8 @@ const LilaPanel = (() => {
               ? "Lila las está guardando en su pestaña, cada una en su mes. Si alguna no cuadra, bórrala desde ahí."
               : "Quedan guardadas aquí y entrarán solas la próxima vez que abras Lila, cada una en su mes."
           }</p>
-          <button class="action" type="button" id="lila-close">Listo</button>`;
+          <button class="action" type="button" id="lila-rescan">Buscar otra vez</button>
+          <button class="action ghost" type="button" id="lila-close">Listo</button>`;
 
       if (state.name === "error")
         return `<p class="error" role="alert">${escape(state.message)}</p>
@@ -288,7 +313,8 @@ const LilaPanel = (() => {
       const already = state.already ?? [];
       if (!ready.length && !incomplete.length && !already.length)
         return `<p class="status">Ningún correo nuevo parece una factura.</p>
-          <p class="hint">Vuelvo a mirar cuando lleguen más.</p>`;
+          <p class="hint">Vuelvo a mirar cuando lleguen más.</p>
+          <button class="action" type="button" id="lila-rescan">Buscar otra vez</button>`;
 
       const exact = ready.filter((record) => record.source === "xml").length;
       return `<p class="status" aria-live="polite">${plural(

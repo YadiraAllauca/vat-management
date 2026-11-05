@@ -7,7 +7,7 @@
   "host_permissions": ["https://mail.google.com/*"],
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
-  "action": { "default_title": "Lila · Gastos desde el correo" },
+  "action": { "default_title": "Lila · Buscar facturas en esta bandeja" },
   "content_scripts": [
     {
       "matches": ["https://mail.google.com/*"],

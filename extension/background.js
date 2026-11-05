@@ -1,4 +1,5 @@
-const DEFAULT_URL = "http://localhost:5173/";
+const LEGACY_URL = "http://localhost:5173/";
+const GMAIL_URL = "https://mail.google.com/mail/u/0/#inbox";
 const AT_A_TIME = 2;
 const TAB_TIMEOUT = 25000;
 
@@ -95,7 +96,6 @@ async function readAll(candidates, inboxTabId) {
   await tell({ type: "cuerpos", results });
 }
 
-/** @returns {Promise<boolean>} true si Lila ya está abierta en alguna pestaña. */
 async function queue({ report, keys }) {
   if (typeof report !== "string" || !report.includes("\t"))
     throw new Error("El informe llegó vacío.");
@@ -131,7 +131,35 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   readers.get(tabId)?.("La pestaña se cerró antes de leer el correo.");
 });
 
+async function inboxTab(clicked) {
+  if (
+    clicked?.id !== undefined &&
+    !readers.has(clicked.id) &&
+    (clicked.url ?? "").startsWith("https://mail.google.com/")
+  )
+    return clicked;
+  const open = await chrome.tabs.query({ url: "https://mail.google.com/*" });
+  return open.find((one) => !readers.has(one.id)) ?? null;
+}
+
+chrome.action.onClicked.addListener(async (clicked) => {
+  const inbox = await inboxTab(clicked);
+  if (!inbox) {
+    await chrome.tabs.create({ url: GMAIL_URL });
+    return;
+  }
+  if (!inbox.active) {
+    await chrome.tabs.update(inbox.id, { active: true });
+    await chrome.windows.update(inbox.windowId, { focused: true });
+  }
+  try {
+    await chrome.tabs.sendMessage(inbox.id, { type: "escanear" });
+  } catch {
+    await chrome.tabs.reload(inbox.id);
+  }
+});
+
 chrome.runtime.onInstalled.addListener(async () => {
   const { lilaUrl } = await chrome.storage.local.get("lilaUrl");
-  if (lilaUrl === DEFAULT_URL) await chrome.storage.local.remove("lilaUrl");
+  if (lilaUrl === LEGACY_URL) await chrome.storage.local.remove("lilaUrl");
 });

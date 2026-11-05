@@ -13,13 +13,14 @@ document.querySelector("#form").addEventListener("submit", async (event) => {
     values[name] = document.querySelector(`#${name}`).value.trim();
 
   status.classList.remove("error");
-  try {
-    new URL(values.lilaUrl);
-  } catch {
-    status.textContent = "La dirección de Lila no es una URL válida.";
-    status.classList.add("error");
-    return;
-  }
+  if (values.lilaUrl)
+    try {
+      new URL(values.lilaUrl);
+    } catch {
+      status.textContent = "La dirección de Lila no es una URL válida.";
+      status.classList.add("error");
+      return;
+    }
   if (values.cedula && !/^\d{10}$/.test(values.cedula)) {
     status.textContent = "La cédula debe tener diez dígitos.";
     status.classList.add("error");

@@ -92,8 +92,8 @@ Drop a file anywhere on the window to import it: `.txt` is read as an SRI receiv
 `extension/` holds an optional Chrome extension that finds electronic invoices
 in Gmail and hands them to Lila. Nothing leaves the browser: no server, no
 OAuth, no Gmail API call. A panel appears in Gmail when the open mailbox holds
-likely invoices; **Leer y extraer** reads each candidate, and **Enviar a Lila**
-saves them here directly and opens the affected month. The review happens in the
+likely invoices, on its own or when you click the extension's toolbar icon; **Leer y extraer** reads each candidate, and **Enviar a Lila**
+hands them over without taking you out of Gmail. The review happens in the
 Gmail panel, which lists every record before it is sent, so the app does not ask
 for the same confirmation twice; a dragged `.txt` report still opens the preview
 as before.
@@ -132,9 +132,12 @@ each step of the flow, and otherwise lists what to do to load it. The two
 sides talk through document events, which only same-document code can dispatch:
 the extension marks `<html data-lila-extension>` and sends `lila:gmail-report`;
 the app answers with `lila:extension-ping` and `lila:extension-identity`. The
-bridge also reports the address Lila is served from, so **Enviar a Lila**
-focuses the deployment you actually use instead of a configured default. A tab
-left open while the extension reloads says so instead of failing silently. See
+extension cannot reach this app's database from Gmail, so sending leaves the
+report in the extension's own storage and the bridge inside a Lila page picks it
+up: within seconds if a tab is already open, otherwise the next time you open
+Lila. The queue survives closing Gmail and restarting the browser, and the panel
+says which of the two happened. A tab left open while the extension reloads says
+so instead of failing silently. See
 `extension/README.md` to install it and to fix the Gmail selectors when Google
 changes its markup.
 

@@ -8,7 +8,10 @@ tu propia sesión.
 ## Cómo funciona
 
 1. Al abrir la bandeja, recorre las filas visibles y marca las que parecen
-   facturas, usando remitente, asunto y fragmento.
+   facturas, usando remitente, asunto y fragmento. También puedes pedírselo tú:
+   **pulsa el icono de Lila en la barra de Chrome** y vuelve a mirar la bandeja
+   en ese momento, aunque hayas cerrado el panel antes. Lo automático y el
+   botón hacen exactamente lo mismo.
 2. Si encuentra alguna, aparece un panel abajo a la derecha: «7 correos parecen
    facturas».
 3. **Leer y extraer** abre cada candidato en una **pestaña en segundo plano**
@@ -16,10 +19,12 @@ tu propia sesión.
    Se leen dos a la vez.
 4. El panel lista lo que quedó completo, con emisor, monto, serie y mes, y
    aparte lo que le faltaron datos.
-5. **Enviar a Lila** abre o enfoca la pestaña de Lila y **las guarda ahí
-   mismo**, sin pedir confirmación otra vez: ya revisaste la lista en el panel.
-   Lila se abre en el mes afectado y un aviso dice cuántas entraron, cuántas se
-   omitieron por repetidas y cuántas no tenían datos válidos.
+5. **Enviar a Lila** las entrega y te deja donde estabas: no abre ninguna
+   pestaña ni te saca de Gmail. El panel dice si Lila ya las está guardando o
+   si entrarán cuando la abras, y se cierra con **Listo**. No pide confirmación
+   otra vez: ya revisaste la lista.
+6. En Lila, cada factura entra en su mes y un aviso dice cuántas entraron,
+   cuántas se omitieron por repetidas y cuántas no tenían datos válidos.
 
 ## De dónde salen los datos, en orden de preferencia
 
@@ -175,26 +180,51 @@ para que «Enviar a Lila» abra la correcta.
 Además el puente marca `<html data-lila-extension="versión">`, para que Lila
 sepa si está puesta aunque la app cargue después.
 
-### A qué pestaña de Lila va «Enviar a Lila»
+### Cómo llegan las facturas a Lila
 
-A la que de verdad estés usando. Cada vez que Lila carga, su puente le dice a la
-extensión en qué dirección vive, y ahí es donde el botón enfoca o abre. No hace
-falta configurar nada: si trabajas en producción, va a producción; si trabajas
-en `localhost`, va a `localhost`.
+La extensión **no puede escribir en la base de datos de Lila** desde Gmail: es
+otro origen, y ni el service worker ni el panel alcanzan el IndexedDB de la
+aplicación. Lo que hace «Enviar a Lila» es dejar el informe en el
+almacenamiento de la extensión. De ahí lo recoge el puente, que vive dentro de
+la propia página de Lila.
 
-Si escribes una dirección en la página de opciones, esa manda sobre la
-aprendida. Las versiones anteriores guardaban `http://localhost:5173/` ahí por
-su cuenta, sin que nadie la eligiera; al actualizar, ese valor se borra.
+Por eso **Lila tiene que abrirse en algún momento**. Si ya está abierta en otra
+pestaña, el puente ve el cambio y lo guarda en segundos, sin que tú cambies de
+pestaña. Si no lo está, el informe espera en la cola y entra solo la próxima vez
+que la abras. Nada se pierde entre una cosa y la otra: la cola sobrevive a
+cerrar Gmail y a reiniciar el navegador.
+
+El panel lo dice con esas mismas palabras al terminar, según encuentre o no una
+pestaña de Lila abierta. Para saberlo, la extensión recuerda en qué dirección
+vive tu Lila: su puente se lo dice cada vez que carga. Si escribes una dirección
+en la página de opciones, esa manda sobre la aprendida; las versiones anteriores
+guardaban `http://localhost:5173/` ahí por su cuenta, y al actualizar ese valor
+se borra.
 
 **Si tienes Lila abierta dos veces** —producción y `localhost` a la vez— los
-registros se los lleva la primera pestaña que alcance la cola, que no
-necesariamente es la que se enfoca. Cierra la que no uses.
+registros se los lleva la primera pestaña que alcance la cola. Cierra la que no
+uses.
 
 ### Si tu Lila vive en un dominio propio
 
 `manifest.json` solo inyecta el puente en `localhost`, `127.0.0.1` y
 `*.vercel.app`. Agrega tu dominio al segundo bloque de `content_scripts` y
 recarga la extensión.
+
+## Volver a buscar
+
+Tres formas, todas el mismo escaneo:
+
+- **El icono de Lila en la barra de Chrome.** Si no estás en Gmail, lo abre; si
+  estás en otra pestaña de Gmail, la enfoca. Si esa pestaña se quedó con un
+  script viejo porque recargaste la extensión, la recarga para revivirlo.
+- **«Buscar otra vez»** en el panel, después de enviar o cuando no encontró
+  nada.
+- **Solo**, cuando Gmail cambia la bandeja y el panel no está cerrado.
+
+Cerrar el panel lo calla hasta que cambies de etiqueta o recargues; el botón lo
+despierta igual. Si pulsas el icono fuera de una lista de correos —dentro de un
+correo abierto, por ejemplo— te lo dice en vez de no hacer nada.
 
 ## Diagnóstico
 
@@ -238,7 +268,7 @@ es mantenimiento recurrente, no una instalación de una sola vez.
 | `src/gmail.js`       | Orquesta mirar, ofrecer, leer y enviar; también hace de lectora. |
 | `src/bridge.js`      | Entrega el informe a Lila por un evento del documento.          |
 | `background.js`      | Abre y cierra las pestañas lectoras, guarda la cola, abre Lila.  |
-| `options.html/.js`   | Dirección de Lila, cédula y RUC.                                |
+| `options.html/.js`   | Dirección de Lila (opcional), cédula y RUC.                     |
 
 `lila:extension-options` sigue funcionando, pero hoy ningún botón de Lila lo
 dispara: las opciones se abren desde el menú de extensiones de Chrome.

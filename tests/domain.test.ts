@@ -453,7 +453,6 @@ test("un total escrito a mano reemplaza la suma de los registros del mes", () =>
   assert.equal(period.total, 4750);
   assert.equal(period.count, 2);
   assert.deepEqual(period.edited, ["APLICABLE IVA"]);
-  // Un mes sin ningún registro también puede llevar sus totales.
   const alone = monthTotals([], "2026-09", {
     [overrideKey("2026-09", "ACTIVIDADES SIN IVA")]: 3000,
   });

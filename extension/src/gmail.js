@@ -55,6 +55,7 @@
         onClose: close,
         onSaveId: saveId,
         onIncludeSent: () => recompute(true),
+        onRescan: rescanNow,
       });
       panel.mount();
     }
@@ -66,6 +67,30 @@
     panel?.unmount();
     panel = null;
     state = null;
+  }
+
+  function rescanNow() {
+    if (working) return;
+    sessionStorage.removeItem(DISMISSED);
+    announced = false;
+    state = null;
+    done = null;
+    panel?.unmount();
+    panel = null;
+    if (!gmail.onList()) {
+      show({ name: "nada", fuera: true });
+      return;
+    }
+    const rows = gmail.rows();
+    const candidates = rows.filter(looksLikeInvoice);
+    console.info(
+      `[Lila] bandeja leída: ${rows.length} filas, ${candidates.length} parecen facturas.`,
+    );
+    show(
+      candidates.length
+        ? { name: "found", candidates: candidates.length, rows: candidates }
+        : { name: "nada" },
+    );
   }
 
   function scan() {
@@ -272,6 +297,10 @@
   }
 
   chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === "escanear") {
+      rescanNow();
+      return;
+    }
     if (!reading) return;
     arm();
     if (message?.type === "progreso")
@@ -333,11 +362,7 @@
   globalThis.lila = {
     revisar: () => gmail.diagnose(),
     probar: (texto) => looksLikeInvoice({ subject: String(texto) }),
-    escanear: () => {
-      sessionStorage.removeItem(DISMISSED);
-      announced = false;
-      scan();
-    },
+    escanear: rescanNow,
   };
   void start();
 })();
