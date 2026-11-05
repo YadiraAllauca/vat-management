@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Lila · Gastos desde el correo",
+  "version": "0.1.0",
+  "description": "Detecta facturas electrónicas en Gmail y las envía a Lila sin que los datos salgan del navegador.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://mail.google.com/*"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "action": { "default_title": "Lila · Gastos desde el correo" },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": [
+        "src/clave.js",
+        "src/xml.js",
+        "src/pdf.js",
+        "src/parse.js",
+        "src/gmail-dom.js",
+        "src/panel.js",
+        "src/gmail.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.vercel.app/*"
+      ],
+      "js": ["src/bridge.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

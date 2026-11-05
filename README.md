@@ -73,6 +73,43 @@ Open **Resumen anual** in the sidebar and pick a year. The table lists every mon
 
 Drop a file anywhere on the window to import it: `.txt` is read as an SRI received-invoice report and `.json` as a Lila backup. The records panel accepts reports and the **Recuperar una copia** card accepts backups; dropping the wrong kind on either reports the mismatch and imports nothing. Dropping more than one file at a time, or any other extension, is also refused. Every drop opens the same preview as the buttons, so nothing is saved before confirmation.
 
+## Invoices from Gmail
+
+`extension/` holds an optional Chrome extension that finds electronic invoices
+in Gmail and hands them to Lila. Nothing leaves the browser: no server, no
+OAuth, no Gmail API call. A panel appears in Gmail when the open mailbox holds
+likely invoices; **Leer y extraer** reads each candidate, and **Enviar a Lila**
+saves them here directly and opens the affected month. The review happens in the
+Gmail panel, which lists every record before it is sent, so the app does not ask
+for the same confirmation twice; a dragged `.txt` report still opens the preview
+as before.
+
+The extension prefers the invoice's **XML attachment**, which carries every
+field exactly; failing that, it extracts the text of a **PDF attachment** using
+only the browser's own decompression; failing that, it rebuilds the record from
+the 49-digit SRI access key found in the message text, which yields the emission date, the issuer RUC,
+and the complete `SERIE_COMPROBANTE`; failing that, it reads labelled amounts
+from the text, including the wording banks use for debit alerts. When a message
+does not state whose invoice it is, the record is filed as `GASTOS PERSONALES`
+with the total, under the configured national ID. A record numbered with a bank
+reference rather than a comprobante series is not recognized as a duplicate of
+the monthly SRI report. It then writes the records in this app's own tab-separated
+report format, so `parseReport` performs the validation, the recipient-length
+classification, and the duplicate detection. Because the invoice number is the
+real one, a record imported from email is recognized as a duplicate when the
+monthly SRI report arrives later. Emails missing any required field are listed
+as incomplete and never sent; invoice numbers are not fabricated.
+
+**Facturas por correo** in the sidebar is the app side of it: it states whether
+the extension is connected in this browser, holds the national ID and RUC the
+extension classifies with, links straight to Gmail, opens the extension's own
+settings, and otherwise lists the steps to load it. The two
+sides talk through document events, which only same-document code can dispatch:
+the extension marks `<html data-lila-extension>` and sends `lila:gmail-report`;
+the app answers with `lila:extension-ping` and `lila:extension-options`. See
+`extension/README.md` to install it and to fix the Gmail selectors when Google
+changes its markup.
+
 ## Recurring expenses
 
 Open **Gastos recurrentes** in the sidebar to manage global templates. Each template stores a name, category, description, and monthly USD amount. Add, edit, or remove templates as your expenses change. Removing a template requires confirmation. Changes affect future applications only; existing invoices are preserved.
@@ -110,7 +147,7 @@ npm test
 npm run build
 ```
 
-Tests cover generated fictional reports, recipient classification, integer-cent totals, malformed rows, per-month duplicates, month, semester and yearly totals, backup validation and round trips, schema migration, recurring settings, monthly recurrence uniqueness, backup compatibility, transactional rollback, and actual IndexedDB operations using `fake-indexeddb`.
+Tests cover generated fictional reports, recipient classification, integer-cent totals, malformed rows, per-month duplicates, month, semester and yearly totals, backup validation and round trips, schema migration, recurring settings, monthly recurrence uniqueness, backup compatibility, transactional rollback, actual IndexedDB operations using `fake-indexeddb`, and the Gmail extension's access-key decoding, amount normalization, and report round trip.
 
 ## Project structure
 
@@ -121,5 +158,7 @@ Tests cover generated fictional reports, recipient classification, integer-cent 
 - `src/db.ts`: transactional IndexedDB persistence.
 - `src/style.css`: responsive lilac theme.
 - `tests/domain.test.ts`: data and persistence tests.
+- `tests/email.test.ts`: access-key decoding, amount parsing, and the email-to-report round trip.
+- `extension/`: optional Chrome extension that reads invoices from Gmail.
 
 Runtime dependencies: none. Development dependencies: TypeScript, Vite, and fake-indexeddb.
