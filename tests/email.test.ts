@@ -47,6 +47,25 @@ test("normaliza montos escritos de distintas formas", () => {
     assert.equal(parse.normalizeAmount(input), expected, input);
 });
 
+test("la hora del aviso no es el importe", () => {
+  const notice = {
+    sender: "Avisos <avisos@bancoejemplo.ec>",
+    subject: "AVISO AUTOMATICO",
+    text: "Estimado cliente, su banco le informa que a las 10:21 se debito de su cta terminada en 1234 el valor de $12.60, por CONSUMO INTERNACIONAL/INTERNET en PASARELA *EJEMPLO. Si no realizo esta transaccion comuniquese con nosotros.",
+    receivedAt: "09/11/2026",
+  };
+  const record = parse.extract(notice, { cedula: CEDULA });
+  assert.equal(record.total, "12.60");
+  assert.equal(record.amount, "12.60");
+  assert.equal(parse.amountFor(notice.text, ["se debito"]), null);
+});
+
+test("el punto final de la frase no se come los centavos", () => {
+  assert.equal(parse.normalizeAmount("12.60,"), "12.60");
+  assert.equal(parse.firstAmount("Se debitó $12.60."), "12.60");
+  assert.equal(parse.amountFor("el valor de $12,60, por consumo", ["valor de"]), "12.60");
+});
+
 test("lee el monto que sigue a su etiqueta", () => {
   const text = "SUBTOTAL SIN IMPUESTOS:\n$ 13,04\nIVA 15% 1,96\nIMPORTE TOTAL 15,00";
   assert.equal(parse.amountFor(text, ["subtotal sin impuestos"]), "13.04");
@@ -140,11 +159,88 @@ test("señala exactamente lo que falta en vez de inventarlo", () => {
     {},
   );
   assert.deepEqual(record.missing, [
-    "número de la factura o de la transacción",
     "fecha de emisión",
     "tu cédula",
     "importe total",
   ]);
+});
+
+test("en un aviso del banco, el emisor es el comercio, no el banco", () => {
+  const notice = parse.extract(
+    {
+      sender: "Un Amigo <amigo@ejemplo.com>",
+      subject: "Fwd: Consumo por $ 7.25 en MARKET CENTRAL SUR K",
+      text: "---------- Forwarded message ---------\nDe: Banco Ejemplo <BancoEjemplo@bancoejemplo.ec>\nDate: vie, 6 nov 2026 a las 9:26\n\nConsumo por $ 7.25 en MARKET CENTRAL SUR K.",
+      receivedAt: "06/11/2026",
+    },
+    { cedula: CEDULA },
+  );
+  assert.equal(notice.emisor, "MARKET CENTRAL SUR K");
+  assert.equal(notice.amount, "7.25");
+
+  const cases: [string, string | null][] = [
+    [
+      "se debito de su cta terminada en 1234 el valor de $12.60, por CONSUMO INTERNACIONAL/INTERNET en PASARELA *EJEMPLO. Si no realizo esta transaccion",
+      "PASARELA *EJEMPLO",
+    ],
+    ["Gracias por su compra en nuestra tienda", null],
+    ["Pago en USD procesado correctamente", null],
+    ["Su factura electronica de CAFETERIA LAS PENAS", null],
+  ];
+  for (const [text, expected] of cases)
+    assert.equal(parse.merchant(text), expected, text);
+});
+
+test("en un reenvío, el emisor es quien emitió, no quien reenvió", () => {
+  const forwarded = parse.extract(
+    {
+      sender: "Un Amigo <amigo@ejemplo.com>",
+      subject: "Fwd: Debito por $ 7.25",
+      text: "---------- Forwarded message ---------\nDe: Banco Ejemplo <BancoEjemplo@bancoejemplo.ec>\nDate: vie, 6 nov 2026 a las 9:26\nSubject: Debito por $ 7.25\nTo: <alguien@ejemplo.com>\n\nSe debito $ 7.25 de su cuenta.",
+      receivedAt: "06/11/2026",
+    },
+    { cedula: CEDULA },
+  );
+  assert.equal(forwarded.emisor, "Banco Ejemplo");
+  assert.match(forwarded.serie, /^SN-20261106-BANCOEJEMPLO-/);
+
+  const headers: [string, string | null][] = [
+    [
+      "---------- Mensaje reenviado --------- De: Tienda Ejemplo <ventas@ejemplo.ec> Fecha: 6 nov 2026 Asunto: Su factura",
+      "Tienda Ejemplo",
+    ],
+    [
+      "-----Mensaje original-----\nDe: Cooperativa Ejemplo <avisos@coopejemplo.ec>\nEnviado: jueves, 6 de noviembre de 2026",
+      "Cooperativa Ejemplo",
+    ],
+    [
+      "---------- Forwarded message ---------\nFrom: <BancoEjemplo@bancoejemplo.ec>\nDate: 6 nov 2026",
+      "BancoEjemplo",
+    ],
+    ["De: contabilidad\nTotal: $4,50", null],
+  ];
+  for (const [text, expected] of headers)
+    assert.equal(parse.forwardedSender(text), expected, text);
+});
+
+test("sin número propio, lo arma con la fecha y el remitente", () => {
+  const email = {
+    sender: "Cafetería Ñandú <hola@ejemplo.ec>",
+    subject: "Gracias por su compra",
+    text: "Total: $ 4,50",
+    receivedAt: "02/10/2026",
+  };
+  const record = parse.extract(email, { cedula: CEDULA });
+  assert.deepEqual(record.missing, []);
+  assert.equal(record.generatedSerie, true);
+  assert.match(record.serie, /^SN-20261002-CAFETERIANAN-[0-9A-Z]{4}$/);
+  assert.equal(parse.extract(email, { cedula: CEDULA }).serie, record.serie);
+  assert.notEqual(
+    parse.extract({ ...email, text: "Total: $ 9,90" }, { cedula: CEDULA })
+      .serie,
+    record.serie,
+  );
+  assert.deepEqual(parseReport(parse.toReport([record])).errors, []);
 });
 
 const FACTURA_XML = `<?xml version="1.0" encoding="UTF-8"?>

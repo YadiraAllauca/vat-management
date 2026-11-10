@@ -18,7 +18,10 @@ tu propia sesión.
    que no vas a ver, lee su texto y la cierra. Tu bandeja no navega ni se mueve.
    Se leen dos a la vez.
 4. El panel lista lo que quedó completo, con emisor, monto, serie y mes, y
-   aparte lo que le faltaron datos.
+   aparte lo que le faltaron datos. **La «×» de cada línea la quita** de la
+   lista: lo que no sea un gasto que quieras registrar no se envía, y no vuelve
+   a ofrecerse en los próximos repasos. Quedan recogidas en «facturas que
+   quitaste», con **Devolverlas a la lista** si te arrepientes.
 5. **Enviar a Lila** las entrega y te deja donde estabas: no abre ninguna
    pestaña ni te saca de Gmail. El panel dice si Lila ya las está guardando o
    si entrarán cuando la abras, y se cierra con **Listo**. No pide confirmación
@@ -42,6 +45,35 @@ tu propia sesión.
    IMPUESTOS», «IVA 15%», las variantes de los bancos («débito por», «consumo
    de») y las inglesas («Total», «Amount paid»). Es la fuente menos fiable y la
    que hay que afinar por emisor.
+
+**Quién vendió, en un aviso de banco.** El aviso lo escribe el mensajero, no
+quien te vendió: «Consumo por $ 7.25 **en MARKET CENTRAL SUR K**». El
+comercio es el nombre en mayúsculas que el banco imprime tras un «en», después
+de una palabra de gasto (`consumo`, `compra`, `pago`, `débito`, `transacción`).
+Exigir mayúsculas es lo que distingue al comercio de la prosa —«compra **en**
+nuestra tienda» no es nadie—, y empezar por letra descarta «terminada **en**
+1234». Manda sobre el remitente; con XML adjunto no se usa, porque ahí la razón
+social es oficial.
+
+**Quién emitió, en un reenvío.** La razón social sale del remitente del correo,
+pero un correo reenviado lo manda quien te hizo el favor, no quien emitió el
+comprobante: el gasto del banco entraba a nombre de quien te lo reenvió. Cuando el
+cuerpo trae una cabecera de reenvío —`---------- Forwarded message ---------`,
+`Mensaje reenviado`, `-----Mensaje original-----`, `Begin forwarded message:`—
+el emisor se lee del `De:` / `From:` que esa cabecera copia, y el remitente de
+Gmail queda de respaldo. Si solo hay dirección y no nombre, el buzón hace de
+razón social: `<BancoEjemplo@bancoejemplo.ec>` → «BancoEjemplo». Sin
+cabecera de reenvío no se toca nada, así que un `De:` suelto en el cuerpo de una
+factura normal no confunde a nadie.
+
+Dos cosas que el texto corrido hace pasar por dinero, y no lo son:
+
+- **La hora.** «le informa que a las 10:21 se debitó … el valor de $12.60»: la
+  hora queda pegada a la misma etiqueta que el importe y el lector se quedaba
+  con `21,00`. Las horas se borran del texto antes de buscar montos.
+- **El punto final.** `$12.60,` no son mil doscientos sesenta dólares: un
+  separador al final cierra la frase, no abre los centavos. Un monto empieza y
+  termina en dígito.
 
 Dos cosas del texto de un RIDE, verificadas contra 26 facturas reales:
 
@@ -106,17 +138,24 @@ queda listada con el motivo «la emitiste tú, no es un gasto».
 
 ## El número del registro
 
-Lila exige un número único por mes. En orden:
+Lila exige un número único por mes, pero el correo ya no tiene que traerlo. En
+orden:
 
 1. La **serie del comprobante**, del XML o de la clave de acceso.
 2. La **referencia del banco** (número de transacción, autorización,
    comprobante), cuando no hay serie. Es un identificador real, no inventado.
-3. Si no hay ninguno de los dos, el correo **no se envía**.
+3. Si no hay ninguna de las dos, la extensión **arma un número** con la fecha
+   del documento —o la de hoy, si tampoco la trae— y el remitente:
+   `SN-20261109-CAFETERIANAN-7F3A`. Las cuatro últimas letras salen de los datos
+   del propio correo (remitente, fecha, montos, RUC), así que el mismo correo
+   rinde siempre el mismo número y dos compras distintas del mismo día y
+   remitente no se confunden. En el panel va marcado «número que le puse yo».
 
 **Consecuencia que conviene tener presente:** un registro numerado con la
-referencia del banco **no** se reconoce como duplicado cuando después importes
-el informe del SRI, porque ese informe usa la serie. Ese mismo gasto puede
-quedar dos veces. Con serie real —o con el XML— el duplicado sí se detecta.
+referencia del banco, o con un número armado por la extensión, **no** se
+reconoce como duplicado cuando después importes el informe del SRI, porque ese
+informe usa la serie. Ese mismo gasto puede quedar dos veces. Con serie real
+—o con el XML— el duplicado sí se detecta.
 
 ## La clave de acceso es el centro de todo
 
@@ -140,9 +179,10 @@ La clasificación es la misma regla de Lila, sin excepciones: receptor de **10
 dígitos** entra como `GASTOS PERSONALES` con el importe total; de **13 dígitos**
 como `APLICABLE IVA` con el valor sin impuestos.
 
-Cuando falta algo, el correo **no** se envía: aparece en «sin datos
-suficientes» diciendo qué falta, para que lo agregues a mano. La extensión no
-inventa números de factura.
+Cuando falta algo —la fecha, tu cédula, el importe—, el correo **no** se envía:
+aparece en «sin datos suficientes» diciendo qué falta, para que lo agregues a
+mano. Lo único que la extensión completa por su cuenta es el número, y lo deja
+dicho.
 
 ## Instalar
 
@@ -250,6 +290,8 @@ abrir los correos, en la consola de Gmail:
 ```js
 lila.revisar(); // qué selector encontró para cada cosa, y cuántas filas ve
 lila.escanear(); // fuerza una nueva pasada por la bandeja
+lila.discarded(); // las que quitaste de la lista, por su número y mes
+lila.forgetDiscarded(); // las devuelve todas, también las de repasos viejos
 ```
 
 Un `null` en el reporte dice exactamente qué selector hay que actualizar. Esto

@@ -115,7 +115,9 @@ const LilaParse = (() => {
   ];
 
   function normalizeAmount(raw) {
-    const text = String(raw).replace(/[^\d.,-]/g, "");
+    const text = String(raw)
+      .replace(/[^\d.,-]/g, "")
+      .replace(/[.,]+$/, "");
     if (!text || /-/.test(text)) return null;
     const lastComma = text.lastIndexOf(",");
     const lastDot = text.lastIndexOf(".");
@@ -133,14 +135,22 @@ const LilaParse = (() => {
     return /^\d+(\.\d{1,2})?$/.test(value) ? value : null;
   }
 
+  // Clock times sit next to the same labels as the amount: "a las 10:21 se
+  // debitó ... el valor de $12.60". They are not money.
+  const CLOCK = /\b\d{1,2}:\d{2}(?::\d{2})?\b/g;
+
   const flatten = (text) =>
     text
       .replace(/\s+/g, " ")
+      .replace(CLOCK, " ")
       .replace(/(\d)[.,]00\s*%/g, "$1%")
       .toLowerCase();
 
-  const AFTER = /^[^\d-]{0,12}(\d[\d.,]*)/;
-  const BEFORE = /(\d[\d.,]*)[^\d]{0,4}$/;
+  // An amount starts and ends in a digit: a trailing dot or comma closes the
+  // sentence, it does not open the cents.
+  const NUMBER = "(\\d(?:[\\d.,]*\\d)?)";
+  const AFTER = new RegExp(`^[^\\d-]{0,12}${NUMBER}`);
+  const BEFORE = new RegExp(`${NUMBER}[^\\d]{0,4}$`);
 
   function sideOf(flat) {
     for (const label of [
@@ -182,6 +192,45 @@ const LilaParse = (() => {
 
   const pad = (value) => String(value).padStart(2, "0");
 
+  function today() {
+    const now = new Date();
+    return `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  }
+
+  const slug = (name) =>
+    String(name ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^A-Za-z0-9]+/g, "")
+      .toUpperCase()
+      .slice(0, 12) || "EMISOR";
+
+  function tag(seed) {
+    let hash = 0x811c9dc5;
+    for (const char of String(seed)) {
+      hash ^= char.charCodeAt(0);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(36).toUpperCase().slice(-4).padStart(4, "0");
+  }
+
+  // A receipt with no number of its own is named after its date and its
+  // sender. The same email always yields the same number, so a repeat is
+  // still recognized as a repeat.
+  function serieFor(parts) {
+    const day = parts.fecha || today();
+    const stamp = `${day.slice(6, 10)}${day.slice(3, 5)}${day.slice(0, 2)}`;
+    const seed = [
+      parts.emisor,
+      day,
+      parts.total,
+      parts.base,
+      parts.iva,
+      parts.ruc,
+    ].join("|");
+    return `SN-${stamp}-${slug(parts.emisor)}-${tag(seed)}`;
+  }
+
   function dateFrom(text) {
     const iso = ISO.exec(text);
     if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
@@ -197,7 +246,7 @@ const LilaParse = (() => {
   }
 
   function firstAmount(text) {
-    const match = /(?:\$|USD)\s*(\d[\d.,]*)/i.exec(text);
+    const match = new RegExp(`(?:\\$|USD)\\s*${NUMBER}`, "i").exec(text);
     return match ? normalizeAmount(match[1]) : null;
   }
 
@@ -255,11 +304,79 @@ const LilaParse = (() => {
   }
 
   function senderName(sender) {
-    const name = String(sender || "")
+    const raw = String(sender || "");
+    const name = raw
       .replace(/<[^>]*>/g, "")
-      .replace(/"/g, "")
+      .replace(/["']/g, "")
+      .trim()
+      .replace(/^[,;:-]+|[,;:-]+$/g, "")
       .trim();
-    return name || "Emisor sin nombre";
+    if (name) return name;
+    const mailbox = /([^\s@<>"]+)@[^\s@<>"]+/.exec(raw);
+    return mailbox ? mailbox[1] : "Emisor sin nombre";
+  }
+
+  // A forwarded email is sent by whoever did you the favour, not by whoever
+  // issued the receipt. The real sender is in the header the forward copies
+  // into the body.
+  const FORWARD =
+    /(?:-{2,}\s*(?:forwarded message|mensaje reenviado|original message|mensaje original)[\s-]*-{2,}|(?:begin forwarded message|inicio del mensaje reenviado)\s*:)/i;
+  const FROM_LINE =
+    /(?:^|\n|\s)(?:de|from|remitente)\s*:\s*(.*?)(?:\n|(?=\s(?:para|to|cc|cco|bcc|fecha|date|enviado|sent|asunto|subject|responder a|reply-to)\s*:)|$)/i;
+
+  // A bank notice is written by the messenger, not by the seller. The seller
+  // is the name the bank prints in capitals after "en": "Consumo por $ 7.25
+  // en MARKET CENTRAL SUR K".
+  const SPEND = /\b(?:consumo|compra|pago|debito|d[eé]bito|transacci[oó]n)\b/i;
+  const IN = /\sen\s+/g;
+  const CAPS = /^[A-ZÑÁÉÍÓÚ0-9*&#/.-]+$/;
+  const NOT_A_SELLER = new Set([
+    "USD",
+    "EUR",
+    "DOLARES",
+    "DÓLARES",
+    "EFECTIVO",
+    "LINEA",
+    "LÍNEA",
+    "INTERNET",
+    "CUOTAS",
+    "TOTAL",
+    "SU",
+    "EL",
+    "LA",
+  ]);
+
+  function merchant(text) {
+    const body = String(text ?? "").replace(/\s+/g, " ");
+    const spend = body.search(SPEND);
+    if (spend === -1) return null;
+    const rest = body.slice(spend);
+    IN.lastIndex = 0;
+    for (const at of rest.matchAll(IN)) {
+      const words = [];
+      for (const word of rest.slice(at.index + at[0].length).split(" ")) {
+        const clean = word.replace(/[.,;:]+$/, "");
+        if (!clean || !CAPS.test(clean)) break;
+        if (!/[A-ZÑÁÉÍÓÚ0-9]/.test(clean)) break;
+        if (!words.length && !/^[A-ZÑÁÉÍÓÚ]/.test(clean)) break;
+        if (NOT_A_SELLER.has(clean)) break;
+        words.push(clean);
+        if (words.length === 6) break;
+      }
+      const name = words.join(" ");
+      if (name.length >= 3) return name;
+    }
+    return null;
+  }
+
+  function forwardedSender(text) {
+    const body = String(text ?? "");
+    const at = body.search(FORWARD);
+    if (at === -1) return null;
+    const match = FROM_LINE.exec(body.slice(at));
+    if (!match) return null;
+    const name = senderName(match[1]);
+    return name === "Emisor sin nombre" ? null : name;
   }
 
   const cell = (value) =>
@@ -288,7 +405,18 @@ const LilaParse = (() => {
     const recipient = stated ?? identity.cedula ?? null;
     const personal = !recipient || recipient.length === 10;
     const used = personal ? total : base;
-    const number = fields.serie ?? fields.reference ?? null;
+    const emisor = fields.emisor || "Emisor sin nombre";
+    const found = fields.serie ?? fields.reference ?? null;
+    const number =
+      found ??
+      serieFor({
+        emisor,
+        fecha: fields.fecha,
+        total,
+        base,
+        iva,
+        ruc: fields.ruc,
+      });
 
     const missing = [];
     if (
@@ -297,7 +425,6 @@ const LilaParse = (() => {
       fields.ruc.startsWith(identity.cedula)
     )
       missing.push("la emitiste tú, no es un gasto");
-    if (!number) missing.push("número de la factura o de la transacción");
     if (!fields.fecha) missing.push("fecha de emisión");
     if (!recipient) missing.push(MISSING_ID);
     if (!used)
@@ -317,7 +444,8 @@ const LilaParse = (() => {
       total,
       clave: fields.clave ?? null,
       ruc: fields.ruc ?? null,
-      emisor: fields.emisor || "Emisor sin nombre",
+      emisor,
+      generatedSerie: !found,
       category: personal ? "GASTOS PERSONALES" : "APLICABLE IVA",
       amount: used,
       source: fields.source ?? "texto",
@@ -363,7 +491,8 @@ const LilaParse = (() => {
           firstAmount(text),
         clave: fromClave?.clave ?? null,
         ruc: fromClave?.ruc ?? null,
-        emisor: senderName(email.sender),
+        emisor:
+          merchant(text) ?? forwardedSender(text) ?? senderName(email.sender),
         guessedDate,
       },
       identity,
@@ -421,6 +550,8 @@ const LilaParse = (() => {
     reference,
     firstAmount,
     dateFrom,
+    forwardedSender,
+    merchant,
     MISSING_ID,
     finalize,
     extract,

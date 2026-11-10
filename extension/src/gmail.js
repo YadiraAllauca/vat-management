@@ -19,6 +19,8 @@
   let done = null;
   let identity = {};
   let sent = new Set();
+  let dropped = new Set();
+  let includeSent = false;
   let announced = false;
   let learned = null;
   let watchdog;
@@ -54,8 +56,13 @@
         onSend: send,
         onClose: close,
         onSaveId: saveId,
-        onIncludeSent: () => recompute(true),
+        onIncludeSent: () => {
+          includeSent = true;
+          recompute();
+        },
         onRescan: rescanNow,
+        onDrop: drop,
+        onRestoreDropped: restoreDropped,
       });
       panel.mount();
     }
@@ -112,6 +119,7 @@
   async function extractAll() {
     if (working) return;
     working = true;
+    includeSent = false;
     const rows = state.rows;
     const readable = rows.filter((row) => row.url);
     const unreadable = rows
@@ -194,11 +202,12 @@
     console.info(`[Lila] deduje tu identificación: ${learned}`);
   }
 
-  function recompute(includeSent = false) {
+  function recompute() {
     if (!identity.cedula) learnIdentity();
     const ready = [];
     const incomplete = [...done.unreadable];
     const already = [];
+    const discarded = [];
     for (const result of done.results) {
       const row = done.rows.get(result.id) ?? {};
       if (result.error) {
@@ -245,6 +254,7 @@
         incomplete.push(record);
       }
       else if (ready.some((one) => keyOf(one) === keyOf(record))) continue;
+      else if (dropped.has(keyOf(record))) discarded.push(record);
       else if (!includeSent && sent.has(keyOf(record))) already.push(record);
       else ready.push(record);
     }
@@ -254,6 +264,7 @@
       incomplete,
       progress: 100,
       already,
+      dropped: discarded,
       needsId: !identity.cedula && incomplete.some(missingId),
       learned,
       fixable: incomplete.filter(
@@ -263,6 +274,29 @@
   }
 
   const missingId = (record) => record.missing?.includes(MISSING_ID);
+
+  const remember = () =>
+    chrome.storage.local
+      .set({ dropped: [...dropped].slice(-3000) })
+      .catch(() => {});
+
+  // Dropping an invoice says it is not an expense you want recorded, so it is
+  // remembered: later passes stop offering it.
+  function drop(index) {
+    const record = (state?.records ?? [])[index];
+    if (!record || working) return;
+    dropped.add(keyOf(record));
+    console.info(`[Lila] quitada · ${record.emisor} · ${keyOf(record)}`);
+    void remember();
+    if (done) recompute();
+  }
+
+  function restoreDropped() {
+    if (working) return;
+    for (const record of state?.dropped ?? []) dropped.delete(keyOf(record));
+    void remember();
+    if (done) recompute();
+  }
 
   async function saveId(cedula) {
     await chrome.storage.local.set({ cedula });
@@ -332,9 +366,15 @@
     if (reader) return readAndReport();
 
     console.info("[Lila] extensión activa en Gmail.");
-    const stored = await chrome.storage.local.get(["cedula", "ruc", "sent"]);
+    const stored = await chrome.storage.local.get([
+      "cedula",
+      "ruc",
+      "sent",
+      "dropped",
+    ]);
     identity = { cedula: stored.cedula, ruc: stored.ruc };
     sent = new Set(stored.sent ?? []);
+    dropped = new Set(stored.dropped ?? []);
 
     let scheduled = false;
     const rescan = () => {
@@ -363,6 +403,13 @@
     revisar: () => gmail.diagnose(),
     probar: (texto) => looksLikeInvoice({ subject: String(texto) }),
     escanear: rescanNow,
+    discarded: () => [...dropped],
+    forgetDiscarded: () => {
+      dropped = new Set();
+      void remember();
+      if (done) recompute();
+      return "Vuelven a aparecer en el próximo repaso.";
+    },
   };
   void start();
 })();

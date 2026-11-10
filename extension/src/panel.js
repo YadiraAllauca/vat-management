@@ -95,6 +95,20 @@ const LilaPanel = (() => {
       color: #858190;
     }
     .meta span:first-child { flex: 1; font-variant-numeric: tabular-nums; }
+    .drop {
+      width: 24px;
+      height: 24px;
+      flex: none;
+      align-self: center;
+      margin: -2px -4px -2px 0;
+      padding: 0;
+      font-size: 15px;
+      line-height: 1;
+      color: #a9a4b5;
+      background: none;
+      border-radius: 7px;
+    }
+    .drop:hover { background: #fdf0f3; color: #a3314c; }
     details { margin-top: 12px; font-size: 12px; }
     summary { cursor: pointer; color: #5d3792; }
     summary:focus-visible { outline: 3px solid #b69bdc; outline-offset: 2px; }
@@ -186,8 +200,26 @@ const LilaPanel = (() => {
   const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
 
   class Panel {
-    constructor({ onExtract, onSend, onClose, onSaveId, onIncludeSent }) {
-      this.handlers = { onExtract, onSend, onClose, onSaveId, onIncludeSent };
+    constructor({
+      onExtract,
+      onSend,
+      onClose,
+      onSaveId,
+      onIncludeSent,
+      onRescan,
+      onDrop,
+      onRestoreDropped,
+    }) {
+      this.handlers = {
+        onExtract,
+        onSend,
+        onClose,
+        onSaveId,
+        onIncludeSent,
+        onRescan,
+        onDrop,
+        onRestoreDropped,
+      };
       this.host = document.createElement("div");
       this.host.id = "lila-panel-host";
       this.root = this.host.attachShadow({ mode: "open" });
@@ -243,6 +275,13 @@ const LilaPanel = (() => {
       this.frame
         .querySelector("#lila-rescan")
         ?.addEventListener("click", () => this.handlers.onRescan?.());
+      this.frame
+        .querySelector("#lila-restore")
+        ?.addEventListener("click", () => this.handlers.onRestoreDropped?.());
+      for (const button of this.frame.querySelectorAll(".drop"))
+        button.addEventListener("click", () =>
+          this.handlers.onDrop?.(Number(button.dataset.index)),
+        );
       this.frame
         .querySelector("#lila-ask")
         ?.addEventListener("submit", (event) => {
@@ -311,7 +350,8 @@ const LilaPanel = (() => {
       const ready = state.records ?? [];
       const incomplete = state.incomplete ?? [];
       const already = state.already ?? [];
-      if (!ready.length && !incomplete.length && !already.length)
+      const dropped = state.dropped ?? [];
+      if (!ready.length && !incomplete.length && !already.length && !dropped.length)
         return `<p class="status">Ningún correo nuevo parece una factura.</p>
           <p class="hint">Vuelvo a mirar cuando lleguen más.</p>
           <button class="action" type="button" id="lila-rescan">Buscar otra vez</button>`;
@@ -327,13 +367,18 @@ const LilaPanel = (() => {
           ready.length
             ? `<ul>${ready
                 .map(
-                  (record) => `<li>
+                  (record, index) => `<li>
                     <div class="line">
                       <span class="who">${escape(record.emisor)}</span>
                       <span class="amount">${money(record.amount)}</span>
+                      <button class="drop" type="button" data-index="${index}" title="No enviar esta" aria-label="No enviar la factura de ${escape(
+                        record.emisor,
+                      )} por ${money(record.amount)}">&times;</button>
                     </div>
                     <div class="meta">
-                      <span>${escape(record.serie)}</span>
+                      <span>${escape(record.serie)}${
+                        record.generatedSerie ? " (número que le puse yo)" : ""
+                      }</span>
                       <span>${escape(monthName(record.month))}${
                         record.guessedDate ? " (fecha del correo)" : ""
                       }</span>
@@ -341,6 +386,25 @@ const LilaPanel = (() => {
                   </li>`,
                 )
                 .join("")}</ul>`
+            : ""
+        }
+        ${
+          dropped.length
+            ? `<details>
+                <summary>${plural(
+                  dropped.length,
+                  "factura que quitaste",
+                  "facturas que quitaste",
+                )}</summary>
+                <ul>${dropped
+                  .map(
+                    (record) =>
+                      `<li>${escape(record.emisor)} · ${money(record.amount)}</li>`,
+                  )
+                  .join("")}</ul>
+                <p class="hint">No se envían, ni ahora ni en los próximos repasos.</p>
+                <button class="inline-link" type="button" id="lila-restore">Devolverlas a la lista</button>
+              </details>`
             : ""
         }
         ${
