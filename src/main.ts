@@ -116,6 +116,8 @@ function selectMonth(value: string) {
 let category = "all";
 let query = "";
 let page = 1;
+// How many invoices one page of the records table shows.
+const PAGE_SIZE = 20;
 let view: "records" | "backup" | "recurring" | "summary" | "email" =
   "records";
 let year = currentYear();
@@ -331,18 +333,18 @@ function renderTable() {
         `${r.number} ${r.detail}`.toLowerCase().includes(query.toLowerCase()),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const pages = Math.max(1, Math.ceil(filtered.length / 8));
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   page = Math.min(page, pages);
   document.querySelector("#table-content")!.innerHTML = filtered.length
     ? `<div class="table-scroll records-scroll"><table class="records-table"><thead><tr><th>N.º DE FACTURA</th><th>DETALLE</th><th>CATEGORÍA</th><th class="amount">TOTAL</th><th><span class="sr-only">Acciones</span></th></tr></thead><tbody>${filtered
-        .slice((page - 1) * 8, page * 8)
+        .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
         .map(
           (r) =>
             `<tr><td><div class="invoice-number"><span class="row-icon">${icon("receipt")}</span><span>${escape(r.number)}<small>${titleCase(monthName(r.month))}</small></span></div></td><td class="detail-cell">${escape(r.detail || "Sin detalle")}</td><td><span class="badge badge-${categories.indexOf(r.category)}"><i></i>${escape(r.category)}</span></td><td class="amount row-amount">${money(r.cents)}</td><td><div class="row-actions"><button class="icon-button" data-edit="${escape(r.id)}" aria-label="Editar factura ${escape(r.number)}">${icon("edit")}</button><button class="icon-button delete" data-delete="${escape(r.id)}" aria-label="Eliminar factura ${escape(r.number)}">${icon("trash")}</button></div></td></tr>`,
         )
         .join(
           "",
-        )}</tbody></table></div><div class="pagination"><span>Mostrando ${(page - 1) * 8 + 1}–${Math.min(page * 8, filtered.length)} de ${filtered.length} registros</span><div><button class="button small secondary" id="prev" ${page === 1 ? "disabled" : ""}>Anterior</button><span>${page} / ${pages}</span><button class="button small secondary" id="next" ${page === pages ? "disabled" : ""}>Siguiente</button></div></div>`
+        )}</tbody></table></div><div class="pagination"><span>Mostrando ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, filtered.length)} de ${filtered.length} registros</span><div><button class="button small secondary" id="prev" ${page === 1 ? "disabled" : ""}>Anterior</button><span>${page} / ${pages}</span><button class="button small secondary" id="next" ${page === pages ? "disabled" : ""}>Siguiente</button></div></div>`
     : `<div class="empty"><span class="empty-icon">${icon(query || category !== "all" ? "search" : "receipt")}</span><h3>${query || category !== "all" ? "Sin resultados por aquí" : "Un mes listo para organizar"}</h3>${query || category !== "all" ? "<p>Prueba otra búsqueda o cambia la categoría.</p>" : ""}</div>`;
   document.querySelector("#prev")?.addEventListener("click", () => {
     page--;
