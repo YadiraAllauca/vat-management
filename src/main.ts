@@ -73,7 +73,7 @@ const escape = (value: string) =>
       ]!,
   );
 const money = (cents: number) =>
-  new Intl.NumberFormat("es-EC", { style: "currency", currency: "USD" }).format(
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
     cents / 100,
   );
 const nowMonth = () =>

@@ -193,7 +193,7 @@ const LilaPanel = (() => {
   const monthName = (month) =>
     month ? `${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}` : "";
   const money = (value) =>
-    `$ ${Number(value).toLocaleString("es-EC", {
+    `$ ${Number(value).toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
