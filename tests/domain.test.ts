@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { indexedDB } from "fake-indexeddb";
 import {
   amountToCents,
+  recurringNumber,
   parseReport,
   parseBackup,
   uniqueRecords,
@@ -121,6 +122,15 @@ test("amounts use exact cents and reject invalid values", () => {
   assert.equal(amountToCents(",91"), 91);
   for (const input of ["-2", "NaN", "1.234", "", "1e4", "Infinity", ".", ".123"])
     assert.throws(() => amountToCents(input));
+});
+test("a recurring expense proposes a number from its month and name", () => {
+  assert.equal(recurringNumber("PREPLY", "2026-10"), "10-2026-PREPLY");
+  assert.equal(recurringNumber("Netflix Premium", "2026-01"), "01-2026-NETFLIX");
+  assert.equal(recurringNumber("Teléfono CNT", "2026-10"), "10-2026-TELEFONO");
+  assert.equal(recurringNumber("  spotify (familiar)", "2026-07"), "07-2026-SPOTIFY");
+  // A name with nothing to spell still leaves a usable number.
+  assert.equal(recurringNumber("///", "2026-07"), "07-2026");
+  assert.ok(keyFor(recurringNumber("///", "2026-07")));
 });
 test("duplicates normalize separators and whitespace within a batch", () => {
   const a = parseReport(report([row("001-001-000000001", "9999999999")]))

@@ -66,6 +66,22 @@ export const keyFor = (number: string) =>
   number.trim().replace(/[\s-]/g, "").toUpperCase();
 // An invoice number is unique within its month, not across months.
 export const monthNumberKey = (r: Invoice) => `${r.month}|${keyFor(r.number)}`;
+// A recurring expense arrives without an invoice number, so the form proposes
+// one built from the month and the first word of the name: "10-2026-PREPLY".
+export function recurringNumber(name: string, month: string): string {
+  const [year, monthNumber] = month.split("-");
+  const word = String(name ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .split(" ")[0]
+    .toUpperCase()
+    .slice(0, 40);
+  return word
+    ? `${monthNumber}-${year}-${word}`
+    : `${monthNumber}-${year}`;
+}
 export function amountToCents(value: string): number {
   const trimmed = value.trim();
   // Decimals use a period. A comma is read as a thousands separator when it

@@ -3,6 +3,7 @@ import {
   categories,
   keyFor,
   pendingRecurring,
+  recurringNumber,
   type Invoice,
   type RecurringExpense,
 } from "./domain.ts";
@@ -130,13 +131,25 @@ export async function applyRecurring(
     ]);
     const available = pendingRecurring(templates, records, month);
     const { icon, escape, money, modal } = ui;
+    // Propose a number per entry and keep it clear of the month's own numbers.
+    const taken = new Set(
+      records.filter((r) => r.month === month).map((r) => keyFor(r.number)),
+    );
+    const proposed = available.map((t) => {
+      const base = recurringNumber(t.name, month);
+      let candidate = base;
+      for (let n = 2; taken.has(keyFor(candidate)); n++)
+        candidate = `${base}-${n}`;
+      taken.add(keyFor(candidate));
+      return candidate;
+    });
     if (!available.length) {
       ui.toast("Todos los recurrentes ya están añadidos a este mes.");
       await ui.refresh();
       return;
     }
     ui.showModal(
-      `<span class="dialog-icon">${icon("receipt")}</span><h2>Recurrentes de ${escape(monthLabel)}</h2><p class="dialog-description">Selecciona tus gastos, completa los números de factura y ajusta los importes si hace falta. ${templates.length - available.length} ya registrados se omiten.</p><form id="apply-recurring-form"><div class="recurring-entries">${available.map((t, i) => `<fieldset class="recurring-entry"><legend><label class="recurring-check"><input type="checkbox" name="include-${i}" checked><span>${escape(t.name)}</span></label></legend><span class="badge badge-${categories.indexOf(t.category)}">${escape(t.category)}</span><p class="field-hint">${escape(t.detail || "Sin detalle")}</p><div class="form-row"><label>Número de factura<input name="number-${i}" required maxlength="100" placeholder="001-001-000000001"></label><label>Importe (USD)<input name="amount-${i}" inputmode="decimal" required value="${(t.cents / 100).toFixed(2)}"></label></div><span class="field-hint">Importe configurado: ${money(t.cents)}</span></fieldset>`).join("")}</div><p class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="button secondary" id="cancel-apply">Cancelar</button><button type="submit" class="button primary">${icon("check")} Añadir al mes</button></div></form>`,
+      `<span class="dialog-icon">${icon("receipt")}</span><h2>Recurrentes de ${escape(monthLabel)}</h2><p class="dialog-description">Selecciona tus gastos, completa los números de factura y ajusta los importes si hace falta. ${templates.length - available.length} ya registrados se omiten.</p><form id="apply-recurring-form"><div class="recurring-entries">${available.map((t, i) => `<fieldset class="recurring-entry"><legend><label class="recurring-check"><input type="checkbox" name="include-${i}" checked><span>${escape(t.name)}</span></label></legend><span class="badge badge-${categories.indexOf(t.category)}">${escape(t.category)}</span><p class="field-hint">${escape(t.detail || "Sin detalle")}</p><div class="form-row"><label>Número de factura<input name="number-${i}" required maxlength="100" placeholder="001-001-000000001" value="${escape(proposed[i])}"></label><label>Importe (USD)<input name="amount-${i}" inputmode="decimal" required value="${(t.cents / 100).toFixed(2)}"></label></div><span class="field-hint">Importe configurado: ${money(t.cents)}</span></fieldset>`).join("")}</div><p class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="button secondary" id="cancel-apply">Cancelar</button><button type="submit" class="button primary">${icon("check")} Añadir al mes</button></div></form>`,
     );
     modal.querySelector("#cancel-apply")!.addEventListener("click", () => {
       if (!ui.isBusy()) modal.close();
