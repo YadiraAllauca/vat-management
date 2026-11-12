@@ -115,7 +115,11 @@ test("amounts use exact cents and reject invalid values", () => {
   assert.equal(amountToCents("13.04"), 1304);
   assert.equal(amountToCents("0,10"), 10);
   assert.equal(amountToCents("5"), 500);
-  for (const input of ["-2", "NaN", "1.234", "", "1e4", "Infinity"])
+  // The SRI report writes amounts under one dollar without a leading zero.
+  assert.equal(amountToCents(".82"), 82);
+  assert.equal(amountToCents(".4"), 40);
+  assert.equal(amountToCents(",91"), 91);
+  for (const input of ["-2", "NaN", "1.234", "", "1e4", "Infinity", ".", ".123"])
     assert.throws(() => amountToCents(input));
 });
 test("duplicates normalize separators and whitespace within a batch", () => {

@@ -70,9 +70,11 @@ export function amountToCents(value: string): number {
   const trimmed = value.trim();
   // Decimals use a period. A comma is read as a thousands separator when it
   // groups digits in threes ("1,234.56"); otherwise it is a decimal comma.
-  const normalized = /^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(trimmed)
+  const grouped = /^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(trimmed)
     ? trimmed.replace(/,/g, "")
     : trimmed.replace(",", ".");
+  // The SRI report writes amounts under one dollar as ".82", with no whole part.
+  const normalized = grouped.startsWith(".") ? `0${grouped}` : grouped;
   if (!/^\d+(\.\d{1,2})?$/.test(normalized))
     throw new Error("Ingresa un valor positivo con hasta dos decimales.");
   const [whole, fraction = ""] = normalized.split(".");
