@@ -196,6 +196,7 @@ function render() {
       const open = openYears.has(y);
       return `<div class="year-group"><button class="year-item ${y === yearOf(month) && view === "records" ? "current" : ""}" data-year="${y}" aria-expanded="${open}">${icon("chevron")}<span>${y}</span><span class="count">${records.filter((r) => yearOf(r.month) === y).length}</span></button><div class="year-months" ${open ? "" : "hidden"}>${months
         .filter((m) => yearOf(m) === y)
+        .sort()
         .map(
           (m) =>
             `<div class="month-row ${m === month && view === "records" ? "selected" : ""}"><button class="month-item" data-month="${m}">${icon("folder")}<span>${titleCase(monthAlone(m))}</span></button><span class="count">${records.filter((r) => r.month === m).length}</span><button class="icon-button month-dots" data-menu="${m}" aria-haspopup="true" aria-expanded="false" aria-label="Opciones de ${escape(titleCase(monthName(m)))}">${icon("dots")}</button></div>`,
