@@ -1,9 +1,11 @@
-const fields = ["lilaUrl", "cedula", "ruc"];
+const fields = ["lilaUrl", "cedula", "ruc", "apiKey", "model"];
 const status = document.querySelector("#status");
+const defaults = { model: "claude-opus-5-5" };
 
 chrome.storage.local.get(fields).then((stored) => {
   for (const name of fields)
-    document.querySelector(`#${name}`).value = stored[name] ?? "";
+    document.querySelector(`#${name}`).value =
+      stored[name] ?? defaults[name] ?? "";
 });
 
 document.querySelector("#form").addEventListener("submit", async (event) => {
@@ -28,6 +30,11 @@ document.querySelector("#form").addEventListener("submit", async (event) => {
   }
   if (values.ruc && !/^\d{13}$/.test(values.ruc)) {
     status.textContent = "El RUC debe tener trece dígitos.";
+    status.classList.add("error");
+    return;
+  }
+  if (values.apiKey && !values.apiKey.startsWith("sk-ant-")) {
+    status.textContent = "Esa no parece una key de Anthropic: empiezan con sk-ant-.";
     status.classList.add("error");
     return;
   }

@@ -64,7 +64,8 @@
         color: #858190;
         line-height: 1.45;
       }
-      input {
+      input,
+      select {
         width: 100%;
         min-height: 42px;
         padding: 0 12px;
@@ -74,7 +75,8 @@
         border: 1px solid #e4e1ee;
         border-radius: 10px;
       }
-      input:focus-visible {
+      input:focus-visible,
+      select:focus-visible {
         outline: 3px solid #b69bdc;
         outline-offset: 2px;
         border-color: #b69bdc;
@@ -116,11 +118,48 @@
       <span class="mark" aria-hidden="true">l<i>•</i></span>
       <h1>Ajustes de la extensión</h1>
       <p class="lead">
-        Los datos de tus facturas nunca salen de este navegador. Estos ajustes
-        solo le dicen a la extensión dónde está tu Lila y cuál identificación
-        es la tuya.
+        La extensión lee tus correos con un modelo de Anthropic, con tu propia
+        key. Eso significa que el asunto, el remitente, el cuerpo y los
+        adjuntos de los correos que elijas revisar <strong>sí salen de este
+        navegador</strong> y viajan a Anthropic. Antes no salía nada; ahora sí,
+        y es el precio de que no haya listas de palabras que mantener.
       </p>
       <form id="form">
+        <label>
+          <span class="name">Tu key de Anthropic</span>
+          <input
+            id="apiKey"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="sk-ant-..."
+          />
+          <span class="help">
+            Se crea en console.anthropic.com → Settings → API keys, y solo se
+            ve entera al crearla. Vive en este navegador y nunca llega a Lila.
+            Sin ella la extensión no detecta nada. Conviene ponerle un límite
+            de gasto mensual en Settings → Limits.
+          </span>
+        </label>
+        <label>
+          <span class="name">Modelo</span>
+          <select id="model">
+            <option value="claude-opus-5-5">
+              Claude Opus 5.5 — el más exacto (recomendado)
+            </option>
+            <option value="claude-sonnet-5-5">
+              Claude Sonnet 5.5 — la mitad de precio
+            </option>
+            <option value="claude-haiku-5-5">
+              Claude Haiku 5.5 — el más barato
+            </option>
+          </select>
+          <span class="help">
+            Un repaso de bandeja y treinta facturas cuestan alrededor de un
+            dólar con Opus. Bajar de modelo abarata, pero lo que se equivoca
+            aquí termina en una declaración de impuestos.
+          </span>
+        </label>
         <label>
           <span class="name">Dirección de Lila</span>
           <input
