@@ -10,3 +10,5 @@ test-results/
 *_Recibidos.txt
 Recibidos.txt
 lila-backup-*.json
+.superpowers/
+tests/fixtures/correos/
