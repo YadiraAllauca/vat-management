@@ -1,4 +1,7 @@
+importScripts("src/clave.js", "src/parse.js", "src/ai.js", "src/claude.js");
+
 const LEGACY_URL = "http://localhost:5173/";
+const MODEL_DEFAULT = "claude-opus-5-5";
 const GMAIL_URL = "https://mail.google.com/mail/u/0/#inbox";
 const AT_A_TIME = 2;
 const TAB_TIMEOUT = 25000;
@@ -35,6 +38,18 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     respond({ ok: true });
     return true;
   }
+  if (message?.type === "clasificar") {
+    clasificar(message.rows ?? [])
+      .then((payload) => respond({ ok: true, ...payload }))
+      .catch((error) => respond({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "extraer") {
+    extraer(message.email ?? {})
+      .then((payload) => respond({ ok: true, ...payload }))
+      .catch((error) => respond({ ok: false, error: error.message }));
+    return true;
+  }
   if (message?.type === "enviar") {
     queue(message)
       .then((abierta) => respond({ ok: true, abierta }))
@@ -43,6 +58,25 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   return false;
 });
+
+async function ajustes() {
+  const { apiKey, model } = await chrome.storage.local.get(["apiKey", "model"]);
+  return { key: apiKey ?? "", model: model || MODEL_DEFAULT };
+}
+
+async function clasificar(rows) {
+  const { key, model } = await ajustes();
+  const body = LilaAI.triageBody(rows, { model });
+  const { message, usage } = await LilaClaude.call(body, key);
+  return { filas: LilaAI.readTriage(message), usage };
+}
+
+async function extraer(email) {
+  const { key, model } = await ajustes();
+  const body = LilaAI.extractBody(email, { model });
+  const { message, usage } = await LilaClaude.call(body, key);
+  return { answer: LilaAI.readExtract(message), usage };
+}
 
 function readOne(url) {
   return new Promise((resolve, reject) => {
