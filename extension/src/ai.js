@@ -1,9 +1,7 @@
-// El contrato con el modelo. Puro: sin fetch, sin DOM, sin chrome.
-// Se carga en el service worker (importScripts) y en los tests.
+// Pure: no fetch, no DOM, no chrome. Loaded in the worker and in the tests.
 const LilaAI = (() => {
-  // LilaParse y LilaClave se leen dentro de cada función, nunca al construir
-  // este IIFE: el orden de carga lo fijan dos listas distintas (el manifiesto
-  // y el importScripts del service worker) y no se puede depender de él.
+  // Read per call, never at IIFE time: two different load orders decide
+  // these (the manifest and the worker's importScripts).
   const parse = () => globalThis.LilaParse;
   const clave = () => globalThis.LilaClave;
 
@@ -102,7 +100,7 @@ Si el correo no contiene ningún gasto, devuelve esGasto false y explica por qu�
   });
 
   function triageBody(rows, { model }) {
-    const listado = rows.map(({ id, sender, subject, snippet }) => ({
+    const listing = rows.map(({ id, sender, subject, snippet }) => ({
       id,
       remitente: sender ?? "",
       asunto: subject ?? "",
@@ -120,7 +118,7 @@ Si el correo no contiene ningún gasto, devuelve esGasto false y explica por qu�
       messages: [
         {
           role: "user",
-          content: [{ type: "text", text: JSON.stringify(listado) }],
+          content: [{ type: "text", text: JSON.stringify(listing) }],
         },
       ],
     };
@@ -140,7 +138,6 @@ Si el correo no contiene ningún gasto, devuelve esGasto false y explica por qu�
     const content = [];
     const attachments = email.attachments ?? [];
 
-    // Los bloques document van antes del texto.
     for (const one of attachments)
       if (one.kind === "pdf")
         content.push({
@@ -223,7 +220,7 @@ Si el correo no contiene ningún gasto, devuelve esGasto false y explica por qu�
     return parsed;
   }
 
-  // "2026-03-15" -> "15/03/2026". Null si la fecha no existe de verdad.
+  // "2026-03-15" -> "15/03/2026". Null if the date does not exist.
   function dmyFrom(iso) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso ?? ""));
     if (!match) return null;
@@ -244,15 +241,25 @@ Si el correo no contiene ningún gasto, devuelve esGasto false y explica por qu�
     const { normalizeAmount, cedulaOk } = parse();
     const text = `${email.text ?? ""}\n${email.xmlText ?? ""}`;
 
-    // La clave de acceso es exacta: si aparece en el texto, manda sobre el
-    // modelo. Si no, se acepta la que devolvió el modelo pero solo si pasa el
-    // módulo 11.
-    const fromText = clave().all(text).find((one) => one.tipo === "01") ?? null;
-    const stated =
-      !fromText && typeof answer.claveAcceso === "string"
-        ? clave().parse(answer.claveAcceso)
-        : null;
-    const found = fromText ?? (stated?.tipo === "01" ? stated : null);
+    const problems = [];
+
+    // The access key is only exact if it passes módulo 11. Without the check,
+    // one wrong digit rewrites RUC, serie and date with decoded garbage.
+    const usable = (one) => one && one.tipo === "01" && clave().valid(one.clave);
+    const fromText =
+      clave()
+        .all(text)
+        .find((one) => usable(one)) ?? null;
+    let stated = null;
+    if (!fromText && typeof answer.claveAcceso === "string" && answer.claveAcceso) {
+      const parsed = clave().parse(answer.claveAcceso);
+      if (usable(parsed)) stated = parsed;
+      else
+        problems.push(
+          "la clave de acceso que leyó el modelo no pasa el dígito verificador",
+        );
+    }
+    const found = fromText ?? stated;
 
     const modelDate = dmyFrom(answer.fecha);
     const fecha = found?.fecha ?? modelDate ?? email.receivedAt ?? null;
@@ -262,20 +269,24 @@ Si el correo no contiene ningún gasto, devuelve esGasto false y explica por qu�
     const iva = normalizeAmount(answer.iva ?? "");
     const baseAmount = normalizeAmount(answer.valorSinImpuestos ?? "");
 
-    const problems = [];
     if (baseAmount && iva && total) {
       const sum = Math.round((Number(baseAmount) + Number(iva)) * 100);
       if (Math.abs(sum - Math.round(Number(total) * 100)) > 2)
         problems.push("el importe total no cuadra con base + IVA");
     }
 
+    // A cédula has the civil-registry check digit; a RUC does not. Companies
+    // (3rd digit 9) and public bodies (6) would all fail cedulaOk and their
+    // invoices would land as personal expenses.
     const claimed =
       typeof answer.identificacionReceptor === "string" &&
       ID.test(answer.identificacionReceptor)
         ? answer.identificacionReceptor
         : null;
     const recipient =
-      claimed && cedulaOk(claimed.slice(0, 10)) ? claimed : null;
+      claimed && (claimed.length === 13 || cedulaOk(claimed)) ? claimed : null;
+    if (claimed && !recipient)
+      problems.push("la identificación del comprador no es válida");
 
     const serie =
       found?.serie ??
@@ -292,7 +303,11 @@ Si el correo no contiene ningún gasto, devuelve esGasto false y explica por qu�
       iva,
       total,
       clave: found?.clave ?? null,
-      ruc: found?.ruc ?? answer.rucEmisor ?? null,
+      ruc:
+        found?.ruc ??
+        (typeof answer.rucEmisor === "string" && /^\d{13}$/.test(answer.rucEmisor)
+          ? answer.rucEmisor
+          : null),
       emisor: answer.emisor ?? null,
       guessedDate,
       source: answer.fuente ?? "texto",

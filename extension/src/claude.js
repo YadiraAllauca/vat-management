@@ -1,13 +1,13 @@
-// La única pieza que habla con api.anthropic.com. Vive en el service worker,
-// porque ahí la key no está al alcance de la página de Gmail.
+// The only piece that talks to api.anthropic.com, and it lives in the service
+// worker so the key stays out of the Gmail page's reach.
 const LilaClaude = (() => {
   const URL_MESSAGES = "https://api.anthropic.com/v1/messages";
   const VERSION = "2026-10-21";
-  const REINTENTOS_SERVIDOR = 2;
+  const SERVER_RETRIES = 2;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const mensajeDe = async (response) => {
+  const messageOf = async (response) => {
     try {
       const body = await response.json();
       return body?.error?.message ?? "";
@@ -26,8 +26,8 @@ const LilaClaude = (() => {
       "anthropic-dangerous-direct-browser-access": "true",
     };
 
-    let servidor = 0;
-    let limitado = false;
+    let serverTries = 0;
+    let rateLimited = false;
 
     for (;;) {
       let response;
@@ -49,30 +49,33 @@ const LilaClaude = (() => {
         );
 
       if (response.status === 429) {
-        if (limitado)
+        if (rateLimited)
           throw new Error(
             "Anthropic está limitando las peticiones. Espera un momento y vuelve a intentar.",
           );
-        limitado = true;
-        const espera = Number(response.headers.get("retry-after") ?? 1);
-        await sleep(Math.max(0, espera) * 1000);
+        rateLimited = true;
+        // retry-after may be an HTTP date: Number() gives NaN and sleep(NaN)
+        // retried instantly.
+        const raw = Number(response.headers.get("retry-after"));
+        const seconds = Number.isFinite(raw) ? Math.max(0, raw) : 2;
+        await sleep(seconds * 1000);
         continue;
       }
 
       if (response.status >= 500) {
-        if (servidor >= REINTENTOS_SERVIDOR)
+        if (serverTries >= SERVER_RETRIES)
           throw new Error(
             `Anthropic respondió ${response.status} y no se recuperó. Vuelve a intentar.`,
           );
-        servidor += 1;
-        await sleep(servidor * 1000);
+        serverTries += 1;
+        await sleep(serverTries * 1000);
         continue;
       }
 
       if (!response.ok) {
-        const detalle = await mensajeDe(response);
+        const detail = await messageOf(response);
         throw new Error(
-          `Anthropic rechazó la petición (${response.status})${detalle ? `: ${detalle}` : "."}`,
+          `Anthropic rechazó la petición (${response.status})${detail ? `: ${detail}` : "."}`,
         );
       }
 

@@ -87,6 +87,14 @@ const LilaPanel = (() => {
     .line { display: flex; gap: 10px; align-items: baseline; }
     .who { flex: 1; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
     .amount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    input.edit {
+      font: inherit; color: inherit; background: transparent;
+      border: 1px solid transparent; border-radius: 4px;
+      padding: 1px 4px; margin: -1px 0;
+    }
+    input.amount.edit { width: 7ch; text-align: right; }
+    input.edit:hover { border-color: rgba(127,127,127,.35); }
+    input.edit:focus { outline: none; border-color: currentColor; background: rgba(127,127,127,.08); }
     .meta {
       display: flex;
       gap: 10px;
@@ -208,6 +216,9 @@ const LilaPanel = (() => {
       onIncludeSent,
       onRescan,
       onDrop,
+      onEdit,
+      onConsent,
+      onOptions,
       onRestoreDropped,
     }) {
       this.handlers = {
@@ -218,6 +229,9 @@ const LilaPanel = (() => {
         onIncludeSent,
         onRescan,
         onDrop,
+        onEdit,
+        onConsent,
+        onOptions,
         onRestoreDropped,
       };
       this.host = document.createElement("div");
@@ -278,6 +292,20 @@ const LilaPanel = (() => {
       this.frame
         .querySelector("#lila-restore")
         ?.addEventListener("click", () => this.handlers.onRestoreDropped?.());
+      this.frame
+        .querySelector("#lila-options")
+        ?.addEventListener("click", () => this.handlers.onOptions?.());
+      this.frame
+        .querySelector("#lila-consent")
+        ?.addEventListener("click", () => this.handlers.onConsent?.());
+      for (const input of this.frame.querySelectorAll(".edit"))
+        input.addEventListener("change", () =>
+          this.handlers.onEdit?.(
+            Number(input.dataset.index),
+            input.dataset.field,
+            input.value.trim(),
+          ),
+        );
       for (const button of this.frame.querySelectorAll(".drop"))
         button.addEventListener("click", () =>
           this.handlers.onDrop?.(Number(button.dataset.index)),
@@ -300,6 +328,22 @@ const LilaPanel = (() => {
     }
 
     content(state) {
+      if (state.name === "consent")
+        return `<p class="status">Antes de empezar: esto manda tus correos a Anthropic.</p>
+          <p class="hint">El asunto, el remitente, el cuerpo y los adjuntos de los correos que revises viajan a la API de Anthropic con tu propia key, para que un modelo los lea. Antes no salía nada de este navegador; ahora sí. Nada se manda sin que pulses tú.</p>
+          <button class="action" type="button" id="lila-consent">Entendido, seguir</button>
+          <button class="action ghost" type="button" id="lila-close">Ahora no</button>`;
+
+      if (state.name === "triaging")
+        return `<p class="status" aria-live="polite">Mirando la bandeja…</p>
+          <p class="hint">Una sola consulta para las ${state.candidates} filas visibles.</p>
+          <button class="action" type="button" disabled>Mirando…</button>`;
+
+      if (state.name === "asking")
+        return `<p class="status" aria-live="polite">Leyendo los ${state.candidates} correos…</p>
+          <p class="hint">Una consulta por correo. Los que ya leí antes no se vuelven a pagar.</p>
+          <button class="action" type="button" disabled>Leyendo…</button>`;
+
       if (state.name === "nada")
         return `<p class="status" aria-live="polite">${
           state.fuera
@@ -309,7 +353,7 @@ const LilaPanel = (() => {
           <p class="hint">${
             state.fuera
               ? "Vuelve a la bandeja o a una etiqueta y pulsa aquí de nuevo."
-              : "Miro el remitente, el asunto y el fragmento de cada fila, más la etiqueta que les hayas puesto."
+              : "Le paso el remitente, el asunto y el fragmento de cada fila al modelo, en una sola consulta."
           }</p>
           <button class="action" type="button" id="lila-rescan">Buscar otra vez</button>
           <button class="action ghost" type="button" id="lila-close">Cerrar</button>`;
@@ -344,8 +388,18 @@ const LilaPanel = (() => {
 
       if (state.name === "error")
         return `<p class="error" role="alert">${escape(state.message)}</p>
-          <p class="hint">Recarga Gmail y vuelve a intentarlo. Si sigue igual, los selectores de Gmail cambiaron.</p>
-          <button class="action" type="button" id="lila-extract">Intentar de nuevo</button>`;
+          <p class="hint">${
+            state.fixable === "key"
+              ? "Abre las opciones de la extensión y pega tu key de Anthropic."
+              : "Vuelve a intentarlo. Si sigue igual, recarga Gmail: puede que los selectores hayan cambiado."
+          }</p>
+          ${
+            state.fixable === "key"
+              ? `<button class="action" type="button" id="lila-options">Abrir las opciones</button>`
+              : ""
+          }
+          <button class="action${state.fixable === "key" ? " ghost" : ""}" type="button" id="lila-rescan">Intentar de nuevo</button>
+          <button class="action ghost" type="button" id="lila-close">Cerrar</button>`;
 
       const ready = state.records ?? [];
       const incomplete = state.incomplete ?? [];
@@ -363,14 +417,15 @@ const LilaPanel = (() => {
         "facturas listas para registrar",
       )}.</p>
         ${exact ? `<p class="hint">${plural(exact, "viene", "vienen")} del XML adjunto, con los datos exactos.</p>` : ""}
+        ${state.cost ? `<p class="hint">Esta tanda costó ${state.cost < 0.01 ? "menos de un centavo" : `$${state.cost.toFixed(2)}`}.</p>` : ""}
         ${
           ready.length
             ? `<ul>${ready
                 .map(
                   (record, index) => `<li>
                     <div class="line">
-                      <span class="who">${escape(record.emisor)}</span>
-                      <span class="amount">${money(record.amount)}</span>
+                      <input class="who edit" data-index="${index}" data-field="emisor" value="${escape(record.emisor)}" aria-label="Emisor" />
+                      <input class="amount edit" data-index="${index}" data-field="amount" value="${escape(record.amount ?? "")}" inputmode="decimal" aria-label="Importe" />
                       <button class="drop" type="button" data-index="${index}" title="No enviar esta" aria-label="No enviar la factura de ${escape(
                         record.emisor,
                       )} por ${money(record.amount)}">&times;</button>

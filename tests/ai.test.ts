@@ -140,3 +140,47 @@ test("un receptor de diez dígitos con dígito verificador falso se descarta", (
   );
   assert.equal(fields.recipient, null);
 });
+
+test("una clave de acceso con el dígito verificador falso no manda sobre el modelo", () => {
+  const mala = `${CLAVE.slice(0, 48)}9`;
+  const fields = ai.fieldsFrom(
+    {
+      esGasto: true,
+      claveAcceso: mala,
+      rucEmisor: "1790012345001",
+      serie: "001-001-000000777",
+      fecha: "2026-11-04",
+    },
+    {},
+  );
+  assert.equal(fields.clave, null);
+  assert.equal(fields.serie, "001-001-000000777");
+  assert.equal(fields.fecha, "04/11/2026");
+  assert.ok(fields.problems.some((one: string) => /clave/i.test(one)));
+});
+
+test("una clave inválida encontrada en el texto tampoco secuestra los datos", () => {
+  const mala = `${CLAVE.slice(0, 48)}9`;
+  const fields = ai.fieldsFrom(
+    { esGasto: true, fecha: "2026-11-04" },
+    { text: `referencia ${mala}` },
+  );
+  assert.equal(fields.clave, null);
+  assert.equal(fields.fecha, "04/11/2026");
+});
+
+test("un RUC de sociedad como receptor se acepta: no usa el dígito de la cédula", () => {
+  const fields = ai.fieldsFrom(
+    { esGasto: true, identificacionReceptor: "1790012345001", importeTotal: "11.50" },
+    {},
+  );
+  assert.equal(fields.recipient, "1790012345001");
+});
+
+test("un RUC del emisor que no son trece dígitos se descarta", () => {
+  assert.equal(ai.fieldsFrom({ esGasto: true, rucEmisor: "RUC 179-ABC" }, {}).ruc, null);
+  assert.equal(
+    ai.fieldsFrom({ esGasto: true, rucEmisor: "1790012345001" }, {}).ruc,
+    "1790012345001",
+  );
+});

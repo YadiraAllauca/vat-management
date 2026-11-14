@@ -134,8 +134,7 @@ const LilaGmail = (() => {
   const looksXml = (text) =>
     /<\?xml|<factura|<autorizacion/i.test(text.slice(0, 2000));
 
-  // Los emisores ecuatorianos mandan el XML comprimido a menudo. Solo la
-  // primera entrada del contenedor: una factura no viene con dos.
+  // Issuers often zip the XML. First entry only: an invoice does not ship two.
   async function fromZip(bytes) {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (view.getUint32(0, true) !== 0x04034b50) throw new Error("no es un zip");
