@@ -121,15 +121,56 @@ const LilaGmail = (() => {
     return content;
   }
 
+  const base64Of = (bytes) => {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      binary += String.fromCharCode.apply(
+        null,
+        bytes.subarray(i, i + 0x8000),
+      );
+    return btoa(binary);
+  };
+
+  const looksXml = (text) =>
+    /<\?xml|<factura|<autorizacion/i.test(text.slice(0, 2000));
+
+  // Issuers often zip the XML. First entry only: an invoice does not ship two.
+  async function fromZip(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (view.getUint32(0, true) !== 0x04034b50) throw new Error("no es un zip");
+    const method = view.getUint16(8, true);
+    const compressed = view.getUint32(18, true);
+    const nameLength = view.getUint16(26, true);
+    const extraLength = view.getUint16(28, true);
+    const start = 30 + nameLength + extraLength;
+    const end = compressed ? start + compressed : bytes.length;
+    if (start >= bytes.length) throw new Error("zip vacío");
+    const payload = bytes.subarray(start, end);
+    if (method === 0) return payload;
+    if (method !== 8) throw new Error("compresión no soportada");
+    const stream = new Blob([payload])
+      .stream()
+      .pipeThrough(new DecompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
   async function describe(bytes) {
-    if (globalThis.LilaPdf.isPdf(bytes))
-      return { kind: "pdf", text: await globalThis.LilaPdf.textFrom(bytes) };
-    if (bytes[0] === 0x50 && bytes[1] === 0x4b)
-      return { kind: "zip", text: "" };
+    if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)
+      return { kind: "pdf", base64: base64Of(bytes) };
+
+    if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+      try {
+        const inner = await fromZip(bytes);
+        const text = new TextDecoder("utf-8").decode(inner);
+        if (looksXml(text))
+          return { kind: "xml", base64: base64Of(inner), text };
+      } catch {}
+      return { kind: "otro", base64: base64Of(bytes) };
+    }
+
     const text = new TextDecoder("utf-8").decode(bytes);
-    if (/<\?xml|<factura|<autorizacion/i.test(text.slice(0, 2000)))
-      return { kind: "xml", text };
-    return { kind: "otro", text: text.includes("\u0000") ? "" : text };
+    if (looksXml(text)) return { kind: "xml", base64: base64Of(bytes), text };
+    return { kind: "otro", base64: base64Of(bytes) };
   }
 
   function attachmentUrls() {
@@ -193,6 +234,7 @@ const LilaGmail = (() => {
     rows,
     waitForBody,
     readAttachments,
+    describe,
     diagnose,
     wait,
   };

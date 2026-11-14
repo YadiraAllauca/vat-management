@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "Lila · Gastos desde el correo",
   "version": "0.1.0",
-  "description": "Detecta facturas electrónicas en Gmail y las envía a Lila sin que los datos salgan del navegador.",
+  "description": "Lee tus facturas de Gmail con un modelo de Anthropic, con tu propia key, y las envía a Lila.",
   "permissions": ["storage", "tabs"],
-  "host_permissions": ["https://mail.google.com/*"],
+  "host_permissions": ["https://mail.google.com/*", "https://api.anthropic.com/*"],
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
   "action": { "default_title": "Lila · Buscar facturas en esta bandeja" },
@@ -13,9 +13,8 @@
       "matches": ["https://mail.google.com/*"],
       "js": [
         "src/clave.js",
-        "src/xml.js",
-        "src/pdf.js",
         "src/parse.js",
+        "src/ai.js",
         "src/gmail-dom.js",
         "src/panel.js",
         "src/gmail.js"

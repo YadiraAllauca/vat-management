@@ -64,7 +64,8 @@
         color: #858190;
         line-height: 1.45;
       }
-      input {
+      input,
+      select {
         width: 100%;
         min-height: 42px;
         padding: 0 12px;
@@ -74,7 +75,8 @@
         border: 1px solid #e4e1ee;
         border-radius: 10px;
       }
-      input:focus-visible {
+      input:focus-visible,
+      select:focus-visible {
         outline: 3px solid #b69bdc;
         outline-offset: 2px;
         border-color: #b69bdc;
@@ -116,9 +118,13 @@
       <span class="mark" aria-hidden="true">l<i>•</i></span>
       <h1>Ajustes de la extensión</h1>
       <p class="lead">
-        Los datos de tus facturas nunca salen de este navegador. Estos ajustes
-        solo le dicen a la extensión dónde está tu Lila y cuál identificación
-        es la tuya.
+        La extensión lee tus correos con un modelo de Anthropic. El asunto, el
+        remitente, el cuerpo y los adjuntos de los correos que revises
+        <strong>sí salen de este navegador</strong> y viajan a Anthropic.
+        <br /><br />
+        La key y el modelo no se configuran aquí: se editan en
+        <code>extension/key.local.js</code>, que git ignora. Después hay que
+        recargar la extensión para que los lea.
       </p>
       <form id="form">
         <label>

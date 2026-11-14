@@ -1,205 +1,122 @@
 # Lila · Gastos desde el correo
 
-Extensión de Chrome que detecta facturas electrónicas en Gmail y las entrega a
-Lila. Nada sale de tu navegador: no hay servidor, no hay OAuth, no hay llamadas
-a la API de Google. La extensión lee lo que Gmail ya dibujó en la pantalla con
-tu propia sesión.
+Extensión de Chrome que encuentra facturas y gastos en tu Gmail y los entrega a
+Lila. Un modelo de Anthropic lee cada correo, con tu propia key.
+
+## Tus correos salen de este navegador
+
+El asunto, el remitente, el cuerpo y los adjuntos de los correos que elijas
+revisar viajan a la API de Anthropic para que un modelo los lea. Tenlo presente
+antes de usarla.
+
+Lo que no sale: no hay servidor propio, no hay OAuth, no hay llamadas a la API
+de Google. La extensión lee lo que Gmail ya dibujó con tu sesión, y la key vive
+solo en este navegador. A Lila no llega nunca.
+
+Nada se manda sin que lo pidas: el panel solo aparece cuando pulsas.
 
 ## Cómo funciona
 
-1. Al abrir la bandeja, recorre las filas visibles y marca las que parecen
-   facturas, usando remitente, asunto y fragmento. También puedes pedírselo tú:
-   **pulsa el icono de Lila en la barra de Chrome** y vuelve a mirar la bandeja
-   en ese momento, aunque hayas cerrado el panel antes. Lo automático y el
-   botón hacen exactamente lo mismo.
-2. Si encuentra alguna, aparece un panel abajo a la derecha: «7 correos parecen
-   facturas».
+1. **Pulsas el icono de Lila** en la barra de Chrome. Una sola consulta con las
+   filas visibles de la bandeja —remitente, asunto, fragmento— pregunta cuáles
+   parecen un gasto. Una consulta, no cincuenta.
+2. Aparece el panel abajo a la derecha: «7 correos parecen gastos».
 3. **Leer y extraer** abre cada candidato en una **pestaña en segundo plano**
-   que no vas a ver, lee su texto y la cierra. Tu bandeja no navega ni se mueve.
-   Se leen dos a la vez.
-4. El panel lista lo que quedó completo, con emisor, monto, serie y mes, y
-   aparte lo que le faltaron datos. **La «×» de cada línea la quita** de la
-   lista: lo que no sea un gasto que quieras registrar no se envía, y no vuelve
-   a ofrecerse en los próximos repasos. Quedan recogidas en «facturas que
-   quitaste», con **Devolverlas a la lista** si te arrepientes.
-5. **Enviar a Lila** las entrega y te deja donde estabas: no abre ninguna
-   pestaña ni te saca de Gmail. El panel dice si Lila ya las está guardando o
-   si entrarán cuando la abras, y se cierra con **Listo**. No pide confirmación
-   otra vez: ya revisaste la lista.
-6. En Lila, cada factura entra en su mes y un aviso dice cuántas entraron,
-   cuántas se omitieron por repetidas y cuántas no tenían datos válidos.
+   que no vas a ver, lee su texto y sus adjuntos y la cierra. Tu bandeja no
+   navega. Se leen dos a la vez.
+4. Cada correo va al modelo con todo lo que traía —texto, XML y PDF adjuntos— y
+   vuelve con los campos del comprobante. El modelo decide de dónde saca cada
+   dato: si hay XML, manda el XML; si solo hay RIDE, lo lee; si no hay nada
+   adjunto, se arregla con el cuerpo.
+5. El panel lista lo que quedó completo y, aparte, lo que no. **Puedes corregir
+   el emisor y el importe ahí mismo**: lo que escribes manda sobre lo que dijo
+   el modelo. La «×» quita una línea y no vuelve a ofrecerse.
+6. **Enviar a Lila** las entrega y te deja donde estabas.
+7. Al pie, lo que costó la tanda.
 
-## De dónde salen los datos, en orden de preferencia
+## Lo que comprueba el código
 
-1. **El XML adjunto.** Si el correo trae el XML de la factura electrónica, se
-   baja y se lee: RUC del emisor, razón social, estab, punto de emisión,
-   secuencial, fecha, identificación del comprador, subtotal, IVA e importe
-   total. Exacto, sin adivinar, sin reglas por emisor. El panel te dice cuántas
-   vinieron por aquí.
-2. **El PDF adjunto (el RIDE).** Sin XML, se extrae el texto del PDF con lo que
-   el navegador ya trae: se localizan sus flujos de contenido, se descomprimen
-   con `DecompressionStream` y se leen las cadenas de texto. De ahí suele salir
-   la clave de acceso, y con ella la serie y la fecha exactas.
-3. **La clave de acceso en el texto.** Ver abajo.
-4. **Las etiquetas del texto.** Montos junto a «IMPORTE TOTAL», «SUBTOTAL SIN
-   IMPUESTOS», «IVA 15%», las variantes de los bancos («débito por», «consumo
-   de») y las inglesas («Total», «Amount paid»). Es la fuente menos fiable y la
-   que hay que afinar por emisor.
+El modelo lee; el código comprueba. Nada de esto adivina:
 
-**Quién vendió, en un aviso de banco.** El aviso lo escribe el mensajero, no
-quien te vendió: «Consumo por $ 7.25 **en MARKET CENTRAL SUR K**». El
-comercio es el nombre en mayúsculas que el banco imprime tras un «en», después
-de una palabra de gasto (`consumo`, `compra`, `pago`, `débito`, `transacción`).
-Exigir mayúsculas es lo que distingue al comercio de la prosa —«compra **en**
-nuestra tienda» no es nadie—, y empezar por letra descarta «terminada **en**
-1234». Manda sobre el remitente; con XML adjunto no se usa, porque ahí la razón
-social es oficial.
+- **La clave de acceso de 49 dígitos.** Se busca también por cuenta propia en el
+  texto y en el XML, exigiendo el **dígito verificador módulo 11**. Si aparece,
+  de ella salen la fecha, el RUC del emisor y la serie **sin ambigüedad**, y lo
+  que diga el modelo sobre esos tres campos no cuenta. Una clave que no pasa el
+  módulo 11 se descarta entera y se avisa.
+- **El dígito verificador del registro civil** sobre el receptor de 10 dígitos.
+  Un RUC de 13 no pasa por ahí: el de sociedades y el del sector público usan
+  otro algoritmo.
+- **La aritmética**: `valor sin impuestos + IVA` tiene que dar el importe total.
+  Si no cuadra, el correo cae en «sin datos suficientes» en vez de entrar mal.
+- **El formato**: el RUC del emisor son trece dígitos o no es nada.
+- **La clasificación**, que es la regla de Lila y no una opinión: receptor de
+  **13 dígitos** → `APLICABLE IVA` con el valor sin impuestos; de **10 dígitos**
+  → `GASTOS PERSONALES` con el importe total.
+- **La factura que emitiste tú**: si el RUC del emisor empieza con tu cédula, no
+  es un gasto.
 
-**Quién emitió, en un reenvío.** La razón social sale del remitente del correo,
-pero un correo reenviado lo manda quien te hizo el favor, no quien emitió el
-comprobante: el gasto del banco entraba a nombre de quien te lo reenvió. Cuando el
-cuerpo trae una cabecera de reenvío —`---------- Forwarded message ---------`,
-`Mensaje reenviado`, `-----Mensaje original-----`, `Begin forwarded message:`—
-el emisor se lee del `De:` / `From:` que esa cabecera copia, y el remitente de
-Gmail queda de respaldo. Si solo hay dirección y no nombre, el buzón hace de
-razón social: `<BancoEjemplo@bancoejemplo.ec>` → «BancoEjemplo». Sin
-cabecera de reenvío no se toca nada, así que un `De:` suelto en el cuerpo de una
-factura normal no confunde a nadie.
+Cuando el correo no dice a nombre de quién está —el caso típico de un aviso de
+banco— se usa tu cédula y entra como gasto personal con el importe total.
+Equivocarse hacia ese lado no infla una deducción de IVA.
 
-Dos cosas que el texto corrido hace pasar por dinero, y no lo son:
+## Lo que se guarda
 
-- **La hora.** «le informa que a las 10:21 se debitó … el valor de $12.60»: la
-  hora queda pegada a la misma etiqueta que el importe y el lector se quedaba
-  con `21,00`. Las horas se borran del texto antes de buscar montos.
-- **El punto final.** `$12.60,` no son mil doscientos sesenta dólares: un
-  separador al final cierra la frase, no abre los centavos. Un monto empieza y
-  termina en dígito.
-
-Dos cosas del texto de un RIDE, verificadas contra 26 facturas reales:
-
-- **El importe se dibuja antes que su etiqueta**: sale `34.99 VALOR TOTAL`, no
-  `VALOR TOTAL 34.99`. El documento mismo decide de qué lado mirar (`sideOf`),
-  porque el cuerpo de un correo sí escribe `Total: $10.00`.
-- **El flujo comprimido casi nunca termina donde terminan sus datos**: entre
-  ellos y `endstream` queda un salto de línea, y `DecompressionStream` lanza
-  «trailing junk» *después* de haber entregado todo el contenido. Por eso se lee
-  por partes y se conserva lo ya descomprimido en vez de descartarlo.
-
-Los adjuntos se identifican por sus **primeros bytes**, no por su nombre:
-`%PDF` es un PDF, `<?xml` o `<factura` un XML, `PK` un `.zip` (que todavía no se
-abre).
-
-Del PDF no siempre se saca algo: si está escaneado el texto es una imagen, y si
-está cifrado o guarda todo en *object streams* no hay nada que leer. En esos
-casos se cae al texto del correo. La clave de acceso se busca también sobre el
-texto sin espacios, exigiendo el **dígito verificador módulo 11** para que
-juntar números vecinos no fabrique una clave falsa.
-
-Si recargas la extensión con Gmail o Lila abiertos, esas pestañas se quedan con
-un script huérfano («Extension context invalidated»). Ahora lo dicen en vez de
-fallar en silencio: Lila vuelve a «sin conectar» y el panel pide recargar.
-
-## Clasificación
-
-Vale la regla de Lila: receptor de **13 dígitos** → `APLICABLE IVA` con el valor
-sin impuestos; de **10 dígitos** → `GASTOS PERSONALES` con el importe total.
-
-Cuando el correo **no dice** a nombre de quién está —el caso típico de un aviso
-del banco— se trata como **gasto personal con el importe total**, usando la
-cédula conocida. Equivocarse hacia ese lado no infla una deducción de IVA,
-porque los gastos personales no se deducen.
-
-Si el documento no menciona IVA, no hay nada que separar: el importe total pasa
-también como valor sin impuestos.
-
-### Cómo sabe cuál es tu cédula
-
-No hace falta configurarla antes de usarla. En orden:
-
-1. **El XML lo dice.** `identificacionComprador` es tu número, sin ambigüedad, y
-   de paso se aprende para los demás correos de la tanda.
-2. **Se deduce del RIDE.** Se buscan los números de 10 o 13 dígitos del
-   documento, se descarta el RUC del emisor —está dentro de la clave de
-   acceso— y se exige el **dígito verificador del registro civil**, que es lo
-   que descarta los teléfonos. Se adopta solo si el mismo número aparece en dos
-   facturas distintas, y el panel dice cuál dedujo.
-3. **La escribes tú**, en Lila → **Configuración**. Lila la guarda en su propia
-   base y se la pasa a la extensión.
-
-Mientras no haya ninguna, los correos sin receptor quedan en «sin datos
-suficientes» diciendo «falta tu cédula», y el panel ofrece el campo ahí mismo:
-al guardarla, la lista se recalcula sin reabrir ningún correo.
-
-### Una factura que emitiste tú no es un gasto tuyo
-
-Si el RUC del emisor —el que va dentro de la clave de acceso— empieza con tu
-cédula, la factura es de las que tú emites a tus clientes. No entra como gasto:
-queda listada con el motivo «la emitiste tú, no es un gasto».
+- **Un correo ya leído no se vuelve a pagar.** El resultado se guarda por correo,
+  con un hash del remitente, el asunto, el cuerpo y el contenido de los
+  adjuntos; el segundo repaso de la misma bandeja no llama a nadie.
+- Los que el modelo descartó quedan recordados con su motivo.
+- Las facturas que quitaste con la «×».
 
 ## El número del registro
 
-Lila exige un número único por mes, pero el correo ya no tiene que traerlo. En
-orden:
+Lila exige un número único por mes. En orden: la **serie** del comprobante; la
+**referencia del banco**; o, si no hay ninguna, un número armado con la fecha y
+el remitente (`SN-20261109-CAFETERIANAN-7F3A`), marcado en el panel como
+«número que le puse yo».
 
-1. La **serie del comprobante**, del XML o de la clave de acceso.
-2. La **referencia del banco** (número de transacción, autorización,
-   comprobante), cuando no hay serie. Es un identificador real, no inventado.
-3. Si no hay ninguna de las dos, la extensión **arma un número** con la fecha
-   del documento —o la de hoy, si tampoco la trae— y el remitente:
-   `SN-20261109-CAFETERIANAN-7F3A`. Las cuatro últimas letras salen de los datos
-   del propio correo (remitente, fecha, montos, RUC), así que el mismo correo
-   rinde siempre el mismo número y dos compras distintas del mismo día y
-   remitente no se confunden. En el panel va marcado «número que le puse yo».
-
-**Consecuencia que conviene tener presente:** un registro numerado con la
-referencia del banco, o con un número armado por la extensión, **no** se
-reconoce como duplicado cuando después importes el informe del SRI, porque ese
-informe usa la serie. Ese mismo gasto puede quedar dos veces. Con serie real
-—o con el XML— el duplicado sí se detecta.
-
-## La clave de acceso es el centro de todo
-
-El cuerpo de un correo rara vez escribe la serie del comprobante, pero casi
-siempre incluye la **clave de acceso** de 49 dígitos. Sus posiciones son fijas:
-
-```
-ddmmaaaa  tipo  ruc            amb  estab ptoEmi secuencial  numérico  emisión  verif.
-   8       2     13             1     3     3        9           8        1        1
-```
-
-De ahí salen, sin ambigüedad, la fecha de emisión, el RUC del emisor y la serie
-completa. Con la serie real, Lila reconoce la factura cuando después importes el
-informe mensual del SRI y no la duplica: su índice único por mes y número hace
-el trabajo.
-
-Del texto se leen además la identificación del receptor y los montos. Si el
-correo solo trae total e IVA, la base sin impuestos se deduce restando.
-
-La clasificación es la misma regla de Lila, sin excepciones: receptor de **10
-dígitos** entra como `GASTOS PERSONALES` con el importe total; de **13 dígitos**
-como `APLICABLE IVA` con el valor sin impuestos.
-
-Cuando falta algo —la fecha, tu cédula, el importe—, el correo **no** se envía:
-aparece en «sin datos suficientes» diciendo qué falta, para que lo agregues a
-mano. Lo único que la extensión completa por su cuenta es el número, y lo deja
-dicho.
+**Consecuencia:** un registro numerado con la referencia del banco o con un
+número armado **no** se reconoce como duplicado cuando después importes el
+informe del SRI, porque ese informe usa la serie.
 
 ## Instalar
 
-Lila te guía: abre **Gastos por correo** en su menú lateral y sigue los pasos
-de la tarjeta. En resumen:
-
 1. Abre `chrome://extensions`, activa **Modo de desarrollador**.
 2. **Cargar descomprimida** y elige esta carpeta `extension/`.
-3. Recarga Lila. La tarjeta pasa a «Conectada en este navegador» sola.
-4. Pulsa **Usar en Gmail**. Si la bandeja tiene facturas, el panel aparece solo.
+3. Crea tu archivo de key a partir de la plantilla:
 
-Tu cédula se escribe en Lila → **Configuración**, no aquí, y solo si quieres
-que el primer escaneo salga completo; si no, la extensión la deduce. La
-dirección de Lila que usa la extensión vive en su página de opciones, que se
-abre desde el menú de extensiones de Chrome.
+   ```sh
+   cp extension/key.local.example.js extension/key.local.js
+   ```
 
-### La conexión entre Lila y la extensión
+   Dentro, `LILA_KEY` es tu key —se crea en console.anthropic.com → Settings →
+   API keys, y solo se ve entera al crearla— y `LILA_MODEL` el modelo.
+   `key.local.js` está en `.gitignore`. **La key no va en
+   `key.local.example.js`**, que es la plantilla y sí se sube al repositorio.
+4. Vuelve a `chrome://extensions` y **recarga** la extensión: el service worker
+   lee ese archivo al arrancar. Cada vez que lo edites, recarga.
+5. Ponle un límite de gasto mensual en Settings → Limits. Esto cuesta dinero.
+6. Recarga Lila y pulsa **Usar en Gmail**.
+
+Tu cédula se escribe en Lila → **Configuración**, y solo si quieres; el modelo
+suele deducirla del propio documento.
+
+## Lo que cuesta
+
+Con `claude-sonnet-5-5`, el modelo por defecto:
+
+| | aproximado |
+| --- | --- |
+| una pasada de bandeja, 50 filas | $0,008 |
+| un correo de texto | $0,005 |
+| un correo con RIDE en PDF | $0,01–0,025 |
+| una tanda de 30 facturas | ~$0,50 |
+
+Son estimaciones. El panel te dice lo que costó de verdad cada tanda. En
+`key.local.js` puedes cambiar a `claude-opus-5-5` (el doble de caro, el más
+exacto) o `claude-haiku-5-5` (el más barato); ten presente que lo que se
+equivoca aquí termina en una declaración.
+
+## La conexión entre Lila y la extensión
 
 Las dos se hablan por eventos del documento, que solo puede disparar código del
 mismo documento. Ninguna página ajena entra por ahí.
@@ -214,131 +131,92 @@ mismo documento. Ninguna página ajena entra por ahí.
 | `lila:extension-identity` | Lila             | La extensión guarda la cédula y el RUC.    |
 | `lila:extension-gone`     | El puente        | Lila vuelve a «sin conectar» y pide recargar. |
 
-El puente además le manda al service worker la dirección donde vive esa Lila,
-para que «Enviar a Lila» abra la correcta.
-
-Además el puente marca `<html data-lila-extension="versión">`, para que Lila
-sepa si está puesta aunque la app cargue después.
-
 ### Cómo llegan las facturas a Lila
 
 La extensión **no puede escribir en la base de datos de Lila** desde Gmail: es
-otro origen, y ni el service worker ni el panel alcanzan el IndexedDB de la
-aplicación. Lo que hace «Enviar a Lila» es dejar el informe en el
-almacenamiento de la extensión. De ahí lo recoge el puente, que vive dentro de
-la propia página de Lila.
+otro origen. «Enviar a Lila» deja el informe en el almacenamiento de la
+extensión, y de ahí lo recoge el puente, que vive dentro de la propia página de
+Lila. Por eso **Lila tiene que abrirse en algún momento**. Si ya está abierta,
+entra en segundos; si no, la cola espera y sobrevive a cerrar Gmail y a
+reiniciar el navegador.
 
-Por eso **Lila tiene que abrirse en algún momento**. Si ya está abierta en otra
-pestaña, el puente ve el cambio y lo guarda en segundos, sin que tú cambies de
-pestaña. Si no lo está, el informe espera en la cola y entra solo la próxima vez
-que la abras. Nada se pierde entre una cosa y la otra: la cola sobrevive a
-cerrar Gmail y a reiniciar el navegador.
-
-El panel lo dice con esas mismas palabras al terminar, según encuentre o no una
-pestaña de Lila abierta. Para saberlo, la extensión recuerda en qué dirección
-vive tu Lila: su puente se lo dice cada vez que carga. Si escribes una dirección
-en la página de opciones, esa manda sobre la aprendida; las versiones anteriores
-guardaban `http://localhost:5173/` ahí por su cuenta, y al actualizar ese valor
-se borra.
-
-**Si tienes Lila abierta dos veces** —producción y `localhost` a la vez— los
-registros se los lleva la primera pestaña que alcance la cola. Cierra la que no
-uses.
+**Si tienes Lila abierta dos veces** —producción y `localhost`— los registros se
+los lleva la primera pestaña que alcance la cola. Cierra la que no uses.
 
 ### Si tu Lila vive en un dominio propio
 
 `manifest.json` solo inyecta el puente en `localhost`, `127.0.0.1` y
-`*.vercel.app`. Agrega tu dominio al segundo bloque de `content_scripts` y
-recarga la extensión.
+`*.vercel.app`. Agrega tu dominio al segundo bloque de `content_scripts`.
 
 ## Volver a buscar
 
-Tres formas, todas el mismo escaneo:
+Dos formas, las dos a pedido:
 
-- **El icono de Lila en la barra de Chrome.** Si no estás en Gmail, lo abre; si
-  estás en otra pestaña de Gmail, la enfoca. Si esa pestaña se quedó con un
-  script viejo porque recargaste la extensión, la recarga para revivirlo.
-- **«Buscar otra vez»** en el panel, después de enviar o cuando no encontró
-  nada.
-- **Solo**, cuando Gmail cambia la bandeja y el panel no está cerrado.
+- **El icono de Lila en la barra de Chrome.** Si no estás en Gmail, lo abre.
+- **«Buscar otra vez»** en el panel.
 
-Cerrar el panel lo calla hasta que cambies de etiqueta o recargues; el botón lo
-despierta igual. Si pulsas el icono fuera de una lista de correos —dentro de un
-correo abierto, por ejemplo— te lo dice en vez de no hacer nada.
+Cambiar de etiqueta cierra el panel y espera a que lo llames. Mirar la bandeja
+cuesta dinero, así que nunca ocurre solo.
 
 ## Diagnóstico
 
-El panel escribe una línea en la consola de Gmail al arrancar y otra con lo que
-vio en la bandeja:
-
-```
-[Lila] extensión activa en Gmail.
-[Lila] bandeja leída: 47 filas, 6 parecen facturas.
-```
-
-Si no aparece la primera, el content script no se inyectó: recarga Gmail después
-de instalar o recargar la extensión. Si la segunda dice **0 filas**, los
-selectores cambiaron.
-
-## Cuando Gmail cambie
-
-Gmail no publica una API de su maquetado ni promete sus clases CSS. Todos los
-selectores viven en un solo archivo, `src/gmail-dom.js`, como listas de
-candidatos que se prueban en orden. Si el panel deja de aparecer o no logra
-abrir los correos, en la consola de Gmail:
+En la consola de Gmail:
 
 ```js
 lila.revisar(); // qué selector encontró para cada cosa, y cuántas filas ve
-lila.escanear(); // fuerza una nueva pasada por la bandeja
-lila.discarded(); // las que quitaste de la lista, por su número y mes
-lila.forgetDiscarded(); // las devuelve todas, también las de repasos viejos
+lila.escanear(); // fuerza una nueva pasada (cuesta dinero)
+lila.guardar(); // descarga los correos de la última tanda, para los tests
+lila.discarded(); // las que quitaste de la lista
+lila.forgetDiscarded(); // las devuelve todas
 ```
 
-Un `null` en el reporte dice exactamente qué selector hay que actualizar. Esto
-es mantenimiento recurrente, no una instalación de una sola vez.
+`lila.guardar()` es cómo se arma el banco de pruebas: haces un repaso normal y
+descarga lo que acaba de leer —texto y adjuntos— a archivos JSON. Van a
+`tests/fixtures/correos/`, que git ignora porque son tus facturas reales. Con
+ellos, `node scripts/measure.mjs` compara lo que saca el modelo contra tu informe
+del SRI, emparejando por clave de acceso.
+
+Si el panel no aparece o no logra abrir los correos, un `null` en
+`lila.revisar()` dice exactamente qué selector hay que actualizar en
+`src/gmail-dom.js`. Esto es mantenimiento recurrente: Gmail no promete sus
+clases CSS.
 
 ## Archivos
 
 | Archivo              | Qué hace                                                      |
 | -------------------- | ------------------------------------------------------------- |
-| `src/clave.js`       | Decodifica la clave de acceso de 49 dígitos.                   |
-| `src/xml.js`         | Lee el XML de la factura electrónica, la mejor fuente.          |
-| `src/pdf.js`         | Saca texto del PDF sin librerías, de mejor esfuerzo.            |
-| `src/parse.js`       | Extrae los campos del texto y los escribe en formato SRI.       |
+| `key.local.js`       | Tu key y el modelo. Ignorado por git; lo lee solo el service worker. |
+| `src/ai.js`          | El contrato con el modelo: esquema, prompts, verificadores. Puro. |
+| `src/claude.js`      | La única pieza que llama a `api.anthropic.com`.                 |
+| `src/clave.js`       | Decodifica y verifica la clave de acceso de 49 dígitos.         |
+| `src/parse.js`       | Aplica la regla de Lila y escribe el formato del SRI.           |
 | `src/gmail-dom.js`   | Todo lo que toca el DOM de Gmail, y nada más.                   |
 | `src/panel.js`       | El panel, en un shadow root, con los colores de Lila.           |
 | `src/gmail.js`       | Orquesta mirar, ofrecer, leer y enviar; también hace de lectora. |
 | `src/bridge.js`      | Entrega el informe a Lila por un evento del documento.          |
-| `background.js`      | Abre y cierra las pestañas lectoras, guarda la cola, abre Lila.  |
-| `options.html/.js`   | Dirección de Lila (opcional), cédula y RUC.                     |
+| `background.js`      | Dueño de la key. Abre las pestañas lectoras y guarda la cola.   |
+| `options.html/.js`   | Dirección de Lila, cédula y RUC.                                |
 
-`lila:extension-options` sigue funcionando, pero hoy ningún botón de Lila lo
-dispara: las opciones se abren desde el menú de extensiones de Chrome.
-
-Las piezas que no dependen del navegador se prueban con el resto del proyecto:
-`npm test` cubre la clave de acceso, los montos, la clasificación y el ida y
-vuelta por `parseReport`.
+`npm test` cubre las piezas que no dependen del navegador: la clave de acceso,
+los verificadores, el armado de las peticiones, la lectura de las respuestas y
+el ZIP de los adjuntos. Ninguna prueba toca la red.
 
 ## Límites, sin adornos
 
+- **Cuesta dinero, y por repaso.** La caché por correo es lo que lo hace
+  soportable.
+- **Sin key no hace nada.** No hay respaldo por palabras clave: mantener dos
+  caminos sería mantener dos cosas que pueden discrepar.
+- **La key está en claro en `key.local.js`.** Si comprimes la carpeta
+  `extension/` para pasársela a alguien, la key va dentro.
 - **Solo Gmail en computadora.** En el celular no hay extensiones de Chrome.
-- **Toma tiempo visible.** Entre uno y tres segundos por correo; con treinta
-  facturas, «Leer y extraer» es una barra de progreso, no algo instantáneo.
-- **Gmail marca como leídos los correos que abre.** Es inevitable leyendo el
-  DOM: para que el cuerpo exista, el correo tiene que abrirse.
-- **Depende del identificador del hilo.** Si Gmail deja de exponerlo en la
-  fila, ese correo se reporta como no legible en vez de abrirse a ciegas.
-- **Cada emisor escribe distinto.** Las palabras que disparan la detección
-  están en `KEYWORDS`, y las etiquetas de montos en `TOTAL_LABELS`,
-  `BASE_LABELS`, `IVA_LABELS` y `BANK_LABELS`, todas en `src/parse.js`. Hay
-  palabras en español y en inglés, porque un recibo de GitHub o de PayPal no
-  dice «pago» en ninguna parte. Si un emisor tuyo queda siempre incompleto,
-  agrega su etiqueta ahí. Para probar si
-  un asunto se detectaría: `lila.probar("Débito a su cuenta por $15")`.
-- **Las palabras amplias traen falsos positivos.** «pago» o «consumo» aparecen
-  en promociones. Cuestan una pestaña abierta y un correo marcado como leído.
-- **Las facturas ya enviadas no se reenvían solas.** Se listan aparte, en «ya
-  enviaste antes», con un enlace para incluirlas igual. Antes se descartaban en
-  silencio, que es peor que no hacerlo.
+- **Toma tiempo visible.** Los correos se leen de uno en uno: con treinta
+  facturas, «Leer y extraer» son varios minutos y no hay contador ni forma de
+  cancelar.
+- **Gmail marca como leídos los correos que abre.** Es inevitable leyendo el DOM.
+- **Un modelo puede cambiar un dígito.** Para eso están los verificadores, y por
+  eso la clave de acceso manda sobre lo que diga el modelo. Pero lo que ningún
+  verificador cubre —la razón social, el nombre del comercio— va sin red.
+- **Una nota de crédito no entra**: los importes negativos se descartan.
 - **El informe del SRI sigue siendo la fuente autoritativa.** Esto adelanta el
   registro; no lo reemplaza.
